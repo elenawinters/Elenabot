@@ -134,10 +134,7 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
-# Stitch Bot
+# Elenabotlib
+*.pyw
 *.ini
-*.mp3
 *.bat
-*.sqlite
-*.sqlite-shm
-*.sqlite-wal
