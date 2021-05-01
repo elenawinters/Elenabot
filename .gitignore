@@ -138,3 +138,4 @@ dmypy.json
 *.pyw
 *.ini
 *.bat
+dev_notes.md
