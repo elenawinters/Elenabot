@@ -201,12 +201,21 @@ def event(event=None): # listener/decorator for on_message
 def author(name): # check author
     def decorator(func):
         def wrapper(self, ctx):
-            if ctx.message.author == name:
+            if ctx.message.author == name.lower():
                 return func(self, ctx)
             return False
         return wrapper
     return decorator
-    
+
+def author(name): # check channel
+    def decorator(func):
+        def wrapper(self, ctx):
+            name = name if name[0] == '#' else f'#{name}'
+            if ctx.message.channel == name:
+                return func(self, ctx)
+            return False
+        return wrapper
+    return decorator
 
 def message(content, mode='eq'): # check message
     def decorator(func):
