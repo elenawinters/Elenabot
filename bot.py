@@ -4,7 +4,6 @@ import configparser
 
 class Elenabot(Session):
     def __init__(self):
-
         super().__init__()  # unfortunately, this is a required call for elenabotlib implemented like this
         config = configparser.ConfigParser()
         config_file = 'config.ini'
@@ -21,6 +20,13 @@ class Elenabot(Session):
 
         channels = ast.literal_eval(config['twitch']['channels'])
         self.start(config['twitch']['oauth'], config['twitch']['nickname'], channels)
+
+    @event('message')
+    @author('elenaberry')
+    @channel('elenaberry')
+    @message('test')
+    def bot_test(self, ctx):
+        ctx.send('This is a test message')
 
     @event('message')
     @author('oythebrave')

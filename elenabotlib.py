@@ -154,7 +154,6 @@ class Session(object):
             msg = line.split(f"PRIVMSG {channel} :")[1]  # this can be broken and abused. conv to regex
 
             def _new_send(message):  # construct send function that can be called from ctx
-                log.debug('We want to send')
                 self.send(message, channel)
 
             uncast = PRIVMSG(**casted, message=Message(user, channel, msg), send=_new_send)
@@ -184,7 +183,6 @@ class Session(object):
             log.critical('NO LISTENERS FOUND')
             return
         for func in listeners[event]:
-            log.debug(func)
             func(self, **kwargs)  # this should
 
     def send(self, message, channel):
@@ -207,11 +205,12 @@ def author(name): # check author
         return wrapper
     return decorator
 
-def author(name): # check channel
+def channel(name): # check channel
     def decorator(func):
         def wrapper(self, ctx):
-            name = name if name[0] == '#' else f'#{name}'
-            if ctx.message.channel == name:
+            def adapt(_name):
+                return _name if _name[0] == '#' else f'#{_name}'
+            if ctx.message.channel == adapt(name):
                 return func(self, ctx)
             return False
         return wrapper
@@ -222,19 +221,16 @@ def message(content, mode='eq'): # check message
         def wrapper(self, ctx):
             def advance():
                 match mode:  # this will show an error because we using 3.10.0a7 and VSC doesn't know that. it works tho
-                    case 'eq':
+                    case 'eq' | 'equals':
                         if ctx.message.content == content:
                             return True
-                    case 'sw':
+                    case 'sw' | 'startswith':
                         return ctx.message.content.startswith(content)
-                    case 'ew':
+                    case 'ew' | 'endswith':
                         return ctx.message.content.endswith(content)
-                    case 'in':
+                    case 'in' | 'contains':
                         if content in ctx.message.content:
                             return True
-                    case _:
-                        return False
-
             if advance():
                 return func(self, ctx)
             return False
