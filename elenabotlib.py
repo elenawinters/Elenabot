@@ -165,7 +165,7 @@ class Session(object):
     
     def log_to_console(self, ctx):
         if hasattr(ctx, 'message'):
-            log.debug(f'{type(ctx).__name__} {ctx.message.channel} >>> {ctx.message.author}: {ctx.message.content}')
+            log.debug(f'{type(ctx).__name__} {ctx.message.channel} >>> {ctx.display_name}: {ctx.message.content}')
 
 
     def parse_privmsg(self, dclass, line): # some of the regex provided by RingoMär <3
@@ -193,11 +193,16 @@ class Session(object):
 
     def parse(self, line):  # use an elif chain or match case (maybee down the line)
         if 'PRIVMSG' in line and line[0] == '@':
-            self.call_listeners('message', ctx=self.parse_privmsg(PRIVMSG, line))
+            prs = self.parse_privmsg(PRIVMSG, line)
+            if not prs.display_name:
+                prs.display_name = prs.message.author
+            self.call_listeners('message', ctx=prs)
         elif 'USERNOTICE' in line and line[0] == '@':  # this uses practically same structure as PRIVMSG, so we can parse the same
             prs = self.parse_privmsg(USERNOTICE, line)  # all we gotta do is correct the user in the message struct
             if prs.login:
                 prs.message.author = prs.login
+            if not prs.display_name:
+                prs.display_name = prs.message.author
             self.call_listeners('usernotice', ctx=prs)  # this will be seperated into the different msg-id's later on
 
     def receive(self):
