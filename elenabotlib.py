@@ -148,6 +148,10 @@ class Session(object):
         if line == "PING :tmi.twitch.tv":
             self.pong()
 
+    def log_to_console(self, ctx):
+        if hasattr(ctx, 'message'):
+            log.debug(f' >>>  {ctx.message.channel}  {ctx.message.author}:  {ctx.message.content}')
+
     def cast(self, dclass, data):
         items = {}
         if not hasattr(dclass, '__annotations__'):
@@ -218,7 +222,8 @@ class Session(object):
     #     pass
 
     def call_listeners(self, event, **kwargs):
-        log.debug(kwargs.get('ctx'))
+        self.log_to_console(kwargs.get('ctx'))
+        # log.debug(kwargs.get('ctx'))
         if event not in listeners:
             # log.critical('NO LISTENERS FOUND')
             return
