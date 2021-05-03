@@ -148,10 +148,6 @@ class Session(object):
         if line == "PING :tmi.twitch.tv":
             self.pong()
 
-    def log_to_console(self, ctx):
-        if hasattr(ctx, 'message'):
-            log.debug(f' >>>  {ctx.message.channel}  {ctx.message.author}:  {ctx.message.content}')
-
     def cast(self, dclass, data):
         items = {}
         if not hasattr(dclass, '__annotations__'):
@@ -167,8 +163,10 @@ class Session(object):
 
         return items
     
-    def uncast(self, dclass, **kwargs): # this is unused
-        return dclass(**kwargs)
+    def log_to_console(self, ctx):
+        if hasattr(ctx, 'message'):
+            log.debug(f'{type(ctx).__name__} {ctx.message.channel} >>> {ctx.message.author}: {ctx.message.content}')
+
 
     def parse_privmsg(self, dclass, line): # some of the regex provided by RingoMär <3
         casted = self.cast(dclass, line)
