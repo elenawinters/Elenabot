@@ -20,7 +20,6 @@ import re
 
 log = logging.getLogger(__name__)
 
-# @badge-info=subscriber/13;badges=subscriber/12,bits/1000;color=#D2691E;display-name=ElenaBerry;emotes=;flags=;id=a8ebbea8-8bcf-4fa6-955f-a9820946e4fe;mod=0;room-id=89766478;subscriber=1;tmi-sent-ts=1619431746466;turbo=0;user-id=41057644;user-type= :elenaberry!elenaberry@elenaberry.tmi.twitch.tv PRIVMSG #zaquelle :zaqLurkie 󠀀
 @dataclass
 class Message:
     author: str
@@ -36,25 +35,49 @@ class Badge:
 # class Bits:
 
 @dataclass
-class PRIVMSG:  # unfortunately, defining fields is necessary
-    badge_info: Badge = field(default_factory=str)
-    badges: list[Badge] = field(default_factory=list)
-    bits: str = field(default_factory=str)
-    color: int = field(default_factory=list)
-    display_name: str = field(default_factory=str)
-    emotes: list = field(default_factory=list)
-    flags: list = field(default_factory=list)
-    id: str = field(default_factory=str)
-    mod: bool = field(default_factory=bool)
-    room_id: int = field(default_factory=int)
-    subscriber: bool = field(default_factory=bool)
-    tmi_sent_ts: int = field(default_factory=int)
-    turbo: bool = field(default_factory=bool)
-    user_id: int = field(default_factory=list)
-    user_type: str = field(default_factory=str)
-    message: Message = field(default_factory=str)
-    send: str = field(default_factory=str)
-    
+class PRIVMSG:
+    badge_info: list[Badge] = None
+    badges: list[Badge] = None
+    bits: str = None
+    color: str = None
+    display_name: str = None
+    emotes: list = None
+    flags: list = None
+    id: str = None
+    mod: bool = False
+    room_id: int = 0
+    subscriber: bool = False
+    tmi_sent_ts: int = 0
+    turbo: bool = False
+    user_id: int = 0
+    user_type: str = None
+    message: Message = None
+    send: str = None
+
+@dataclass
+class USERNOTICE(PRIVMSG):  # there are a ton of params
+    login: str = None
+    msg_id: str = None
+    msg_param_cumulative_months: int = 0
+    msg_param_displayName: str = None # sent only on raid
+    msg_param_viewerCount: int = 0
+    msg_param_login: str = None
+    msg_param_months: int = 0
+    msg_param_promo_gift_total: str = None
+    msg_param_promo_name: str = None
+    msg_param_recipient_display_name: str = None
+    msg_param_recipient_id: str = None
+    msg_param_recipient_user_name: str = None
+    msg_param_sender_login: str = None
+    msg_param_multimonth_tenure: int = 0  # not sure what this is. it's not in the spec, but found it in sub messages. always 0?
+    msg_param_should_share_streak: int = 0
+    msg_param_streak_months: int = 0
+    msg_param_sub_plan_name: str = None
+    msg_param_sub_plan: str = None  # this can be a string or number
+    msg_param_was_gifted: bool = False
+    msg_param_ritual_name: str = None # lol what? this is in the spec
+    msg_param_threshold: int = 0
+    system_msg: str = None
 
 # you can write your own configuration if you want to, not here though. do it in your own class
 def configure_logger(_level=logging.INFO):
@@ -119,9 +142,7 @@ class Session(object):
             log.debug(f'Joined {c}')
 
     def pong(self):
-        pong_msg = "PONG :tmi.twitch.tv"
-        self.socksend(pong_msg)
-        log.debug(pong_msg)
+        self.socksend("PONG :tmi.twitch.tv")
 
     def ping(self, line):
         if line == "PING :tmi.twitch.tv":
@@ -129,35 +150,53 @@ class Session(object):
 
     def cast(self, dclass, data):
         items = {}
+        if not hasattr(dclass, '__annotations__'):
+            return {}
         for k in dclass.__annotations__:
             item = re.search(k.replace('_', '-') + r'=([a-zA-Z0-9-/_,#\w]+)', data)
             if item:
                 items[k] = item.group(1)
+
+        # next step is to go through base classes and run the same thing on them
+        for bclass in dclass.__bases__:
+            items.update(self.cast(bclass, data))
+
         return items
+    
+    def uncast(self, dclass, **kwargs): # this is unused
+        return dclass(**kwargs)
 
-    def parse(self, line):  # https://stackoverflow.com/a/9868665/14125122
-        # if next((i for i in line.split(' ') if i == 'PRIVMSG'), False) and line[0] == '@': # potentially useful?
-        if 'PRIVMSG' in line and line[0] == '@': # some of the regex provided by RingoMär <3
-            casted = self.cast(PRIVMSG, line)
-            if 'badge_info' in casted:
-                casted['badge_info'] = Badge(*casted['badge_info'].split('/'))
+    def parse_privmsg(self, dclass, line): # some of the regex provided by RingoMär <3
+        casted = self.cast(dclass, line)
+        if 'badge_info' in casted:
+            casted['badge_info'] = [Badge(*badge.split('/')) for badge in casted['badge_info'].split(',')]
 
-            if 'badges' in casted:
-                casted['badges'] = [Badge(*badge.split('/')) for badge in casted['badges'].split(',')]
-            
-            try:
-                user = re.search(r":([a-zA-Z0-9-_\w]+)!([a-zA-Z0-9-_\w]+)@([a-zA-Z0-9-_\w]+)", line).group(1)
-            except AttributeError:
-                user = "Anon"
+        if 'badges' in casted:
+            casted['badges'] = [Badge(*badge.split('/')) for badge in casted['badges'].split(',')]
+        
+        try:
+            user = re.search(r":([a-zA-Z0-9-_\w]+)!([a-zA-Z0-9-_\w]+)@([a-zA-Z0-9-_\w]+)", line).group(1)
+        except AttributeError:
+            user = "Anon"
 
-            channel = re.search(r"(#[a-zA-Z0-9-_\w]+) :", line).group(1)
-            msg = line.split(f"PRIVMSG {channel} :")[1]  # this can be broken and abused. conv to regex
+        channel = re.search(f'{dclass.__name__} ' + r"(#[a-zA-Z0-9-_\w]+)", line).group(1)
+        msg = re.search(f'{dclass.__name__} {channel}' + r'..(.*)', line)
+        if msg:
+            msg = msg.group(1)
 
-            def _new_send(message):  # construct send function that can be called from ctx
-                self.send(message, channel)
+        def _new_send(message):  # construct send function that can be called from ctx
+            self.send(message, channel)
 
-            uncast = PRIVMSG(**casted, message=Message(user, channel, msg), send=_new_send)
-            self.call_listeners('message', ctx=uncast)
+        return dclass(**casted, message=Message(user, channel, msg), send=_new_send)
+
+    def parse(self, line):  # use an elif chain or match case (maybee down the line)
+        if 'PRIVMSG' in line and line[0] == '@':
+            self.call_listeners('message', ctx=self.parse_privmsg(PRIVMSG, line))
+        elif 'USERNOTICE' in line and line[0] == '@':  # this uses practically same structure as PRIVMSG, so we can parse the same
+            prs = self.parse_privmsg(USERNOTICE, line)  # all we gotta do is correct the user in the message struct
+            if prs.login:
+                prs.message.author = prs.login
+            self.call_listeners('usernotice', ctx=prs)  # this will be seperated into the different msg-id's later on
 
     def receive(self):
         buffer = ""
@@ -166,7 +205,7 @@ class Session(object):
         buffer = temp.pop()
         # self.ping(line)
         for line in temp:
-            log.debug(line)
+            # log.debug(line)
             self.ping(line)
             self.parse(line)
             # if line[0] == '@':
@@ -178,9 +217,10 @@ class Session(object):
     #     self.socksend(f'PRIVMSG {channel}: {message}')
     #     pass
 
-    def call_listeners(self, event, **kwargs):        
+    def call_listeners(self, event, **kwargs):
+        log.debug(kwargs.get('ctx'))
         if event not in listeners:
-            log.critical('NO LISTENERS FOUND')
+            # log.critical('NO LISTENERS FOUND')
             return
         for func in listeners[event]:
             func(self, **kwargs)  # this should
@@ -197,13 +237,15 @@ def event(event=None): # listener/decorator for on_message
     return wrapper
 
 def author(name): # check author
-    def decorator(func):
+    def decorator(func): # TODO: Add list support
         def wrapper(self, ctx):
             if ctx.message.author == name.lower():
                 return func(self, ctx)
             return False
         return wrapper
     return decorator
+
+authors = author
 
 def channel(name): # check channel
     def decorator(func):
