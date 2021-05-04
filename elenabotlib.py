@@ -35,22 +35,50 @@ class Badge:
 # class Bits:
 
 @dataclass
-class PRIVMSG:
-    badge_info: list[Badge] = None
+class CLEARCHAT: # the minimum data that would be provided would just be the channel
+    ban_duration: int = None
+    channel: str = None
+    user: str = None
+
+@dataclass
+class CLEARMSG:
+    login: str = None
+    message: str = None
+    channel : str = None
+    target_msg_id: str = None
+
+@dataclass
+class ROOMSTATE:
+    emote_only: bool = False
+    followers_only: int = -1
+    r9k: bool = False
+    slow: int = 0
+    subs_only: bool = False
+
+@dataclass
+class GLOBALUSERSTATE: # in this codebase, this is considered the base struct for most actions
+    badge_info: list[Badge] = None  # prediction info goes here as well, for some reason
     badges: list[Badge] = None
-    bits: str = None
     color: str = None
     display_name: str = None
-    emotes: list = None
-    flags: list = None
-    id: str = None
-    mod: bool = False
-    room_id: int = 0
-    subscriber: bool = False
-    tmi_sent_ts: int = 0
+    emote_sets: str = None
     turbo: bool = False
     user_id: int = 0
     user_type: str = None
+
+@dataclass
+class USERSTATE(GLOBALUSERSTATE):
+    mod: bool = False
+    subscriber: bool = False
+
+@dataclass
+class PRIVMSG(USERSTATE):
+    bits: str = None
+    emotes: list = None
+    flags: list = None
+    id: str = None
+    room_id: int = 0
+    tmi_sent_ts: int = 0
     message: Message = None
     send: str = None
 
@@ -78,6 +106,21 @@ class USERNOTICE(PRIVMSG):  # there are a ton of params
     msg_param_ritual_name: str = None # lol what? this is in the spec
     msg_param_threshold: int = 0
     system_msg: str = None
+
+
+# Here we implement some custom ones for the bot dev to use
+# USERNOTICE subclasses
+@dataclass
+class RAID:
+    pass
+
+@dataclass
+class SUBSCRIPTION:
+    pass
+
+@dataclass
+class RITUAL:  # yes this is a thing
+    pass
 
 # you can write your own configuration if you want to, not here though. do it in your own class
 def configure_logger(_level=logging.INFO):
@@ -151,7 +194,7 @@ class Session(object):
     def cast(self, dclass, data):
         items = {}
         if not hasattr(dclass, '__annotations__'):
-            return {}
+            return {}  # return if not dataclass
         for k in dclass.__annotations__:
             item = re.search(k.replace('_', '-') + r'=([a-zA-Z0-9-/_,#\w]+)', data)
             if item:
@@ -167,15 +210,20 @@ class Session(object):
         if hasattr(ctx, 'message'):
             log.debug(f'{type(ctx).__name__} {ctx.message.channel} >>> {ctx.display_name}: {ctx.message.content}')
 
-
-    def parse_privmsg(self, dclass, line): # some of the regex provided by RingoMär <3
-        casted = self.cast(dclass, line)
+    def parse_base(self, casted):
         if 'badge_info' in casted:
             casted['badge_info'] = [Badge(*badge.split('/')) for badge in casted['badge_info'].split(',')]
 
         if 'badges' in casted:
             casted['badges'] = [Badge(*badge.split('/')) for badge in casted['badges'].split(',')]
-        
+        return casted
+
+    # this can also parse 
+    def parse_privmsg(self, dclass, line): # some of the regex provided by RingoMär <3
+        casted = self.cast(dclass, line)
+        self.parse_base(casted)
+        # casted = self.parse_base(casted)
+
         try:
             user = re.search(r":([a-zA-Z0-9-_\w]+)!([a-zA-Z0-9-_\w]+)@([a-zA-Z0-9-_\w]+)", line).group(1)
         except AttributeError:
@@ -186,10 +234,10 @@ class Session(object):
         if msg:
             msg = msg.group(1)
 
-        def _new_send(message):  # construct send function that can be called from ctx
+        def _send_proxy(message):  # construct send function that can be called from ctx
             self.send(message, channel)
 
-        return dclass(**casted, message=Message(user, channel, msg), send=_new_send)
+        return dclass(**casted, message=Message(user, channel, msg), send=_send_proxy)
 
     def parse(self, line):  # use an elif chain or match case (maybee down the line)
         if 'PRIVMSG' in line and line[0] == '@':
@@ -201,7 +249,7 @@ class Session(object):
             prs = self.parse_privmsg(USERNOTICE, line)  # all we gotta do is correct the user in the message struct
             if prs.login:
                 prs.message.author = prs.login
-            if not prs.display_name:
+            if not prs.display_name:  # TODO: Find a better way to do this
                 prs.display_name = prs.message.author
             self.call_listeners('usernotice', ctx=prs)  # this will be seperated into the different msg-id's later on
 
