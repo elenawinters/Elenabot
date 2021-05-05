@@ -12,6 +12,7 @@
 """
 
 from dataclasses import dataclass, field
+import datetime
 import logging
 import socket
 import types
@@ -36,6 +37,7 @@ class Badge:
 
 @dataclass
 class CLEARCHAT: # the minimum data that would be provided would just be the channel
+    tmi_sent_ts: str = None
     ban_duration: int = None
     channel: str = None
     user: str = None
@@ -112,14 +114,32 @@ class USERNOTICE(PRIVMSG):  # there are a ton of params
 # USERNOTICE subclasses
 @dataclass
 class RAID:
-    pass
-
-@dataclass
-class SUBSCRIPTION:
-    pass
+    raider: str = None
+    viewers: int = 0
 
 @dataclass
 class RITUAL:  # yes this is a thing
+    name: str = None
+
+@dataclass
+class SUBSCRIPTION:  # This should be complete
+    promo_total: int = 0
+    promo_name: str = None
+    cumulative: int = 0
+    months: int = 0
+    anon: bool = False
+    gift: bool = False
+    resub: bool = False
+    recipient: str = None
+    recipient_id: str = None
+    sender: str = None
+    share_streak: bool = False
+    streak: int = 0
+    plan: str = None
+    plan_name: str = None
+    gifted_months: int = 0
+
+class ReconnectReceived(Exception):
     pass
 
 # you can write your own configuration if you want to, not here though. do it in your own class
@@ -129,31 +149,42 @@ def configure_logger(_level=logging.INFO):
     handler.setLevel(_level)
     log.addHandler(handler)
 
-listeners = {}
+_listeners = {}
 
 def add_listener(func, name='message'):
-    if name not in listeners:
-        listeners[name] = [func]
+    if name not in _listeners:
+        _listeners[name] = [func]
     else:
-        listeners[name].append(func)
+        _listeners[name].append(func)
 
 class Session(object):
     def __init__(self):
         self.host = 'irc.twitch.tv'
         self.port = 6667
         self.sock = socket.socket()
+        self.cooldowns = {}
         self.channels = []
 
     def start(self, token, nick, channels=None):
         self.token = token
         self.nick = nick
 
-        self.connect()
-        if channels:
-            self.join(channels)
+        while True:
+            self.connect()
+            if channels:
+                self.join(channels)
+            self.loop()
+
+    def loop(self):
         while True:
             try:
                 self.receive()
+            except (ConnectionResetError, ConnectionAbortedError, ReconnectReceived) as exc:
+                self.sock.shutdown(socket.SHUT_RDWR)
+                self.sock.close()
+                self.sock = socket.socket()
+                log.error('An exception occured but was handled' + exc)
+                return
             except Exception as e:
                 log.exception(e)
 
@@ -170,7 +201,7 @@ class Session(object):
             self.socksend("CAP REQ :twitch.tv/membership")
             self.socksend("CAP REQ :twitch.tv/commands")
         except Exception as exc:
-            log.exception(f'Error occured while connecting to IRC: ', exc)
+            log.exception(f'Error occured while connecting to IRC: ', exc_info=exc)
         else:
             log.debug('Connected')
 
@@ -183,6 +214,14 @@ class Session(object):
             c = x.lower() if x[0] == '#' else f'#{x.lower()}'
             self.socksend(f"JOIN {c}")
             log.debug(f'Joined {c}')
+
+    def part(self, channels):  # this is currently untested
+        channels = channels if type(list) else list(channels)
+        self.channels.remove(channels)
+        for x in channels:
+            c = x.lower() if x[0] == '#' else f'#{x.lower()}'
+            self.socksend(f"PART {c}")
+            log.debug(f'Left {c}')
 
     def pong(self):
         self.socksend("PONG :tmi.twitch.tv")
@@ -252,6 +291,9 @@ class Session(object):
             if not prs.display_name:  # TODO: Find a better way to do this
                 prs.display_name = prs.message.author
             self.call_listeners('usernotice', ctx=prs)  # this will be seperated into the different msg-id's later on
+        elif 'RECONNECT' in line:  # user influence shouldn't be possible
+            log.debug(line)  # i don't know what the actually message is. the prototype isn't available
+            raise ReconnectReceived('Server sent RECONNECT. Reconnecting')
 
     def receive(self):
         buffer = ""
@@ -275,11 +317,22 @@ class Session(object):
     def call_listeners(self, event, **kwargs):
         self.log_to_console(kwargs.get('ctx'))
         # log.debug(kwargs.get('ctx'))
-        if event not in listeners:
+        if event not in _listeners:
             # log.critical('NO LISTENERS FOUND')
             return
-        for func in listeners[event]:
-            func(self, **kwargs)  # this should
+        for func in _listeners[event]:
+            func(self, **kwargs)
+    
+    def func_on_cooldown(self, func, time):
+        time_now = datetime.datetime.utcnow()
+        if func in self.cooldowns:
+            if (time_now - self.cooldowns[func]).seconds >= time:
+                self.cooldowns[func] = time_now
+                return False
+        else:
+            self.cooldowns[func] = time_now
+            return False
+        return True
 
     def send(self, message, channel):
         self.socksend(f'PRIVMSG {channel} :{message}')  # placement of the : is important :zaqPbt:
@@ -291,6 +344,15 @@ def event(event=None): # listener/decorator for on_message
         add_listener(func, event)
         return func
     return wrapper
+
+def cooldown(time):
+    def decorator(func):
+        def wrapper(self, ctx):
+            if self.func_on_cooldown(func, time):
+                return False
+            return func(self, ctx)
+        return wrapper
+    return decorator
 
 def author(name): # check author
     def decorator(func): # TODO: Add list support
