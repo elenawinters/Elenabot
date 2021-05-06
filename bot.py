@@ -1,6 +1,7 @@
 from elenabotlib import *
 import sys, os, ast
 import configparser
+import random
 
 class Elenabot(Session):
     def __init__(self):
