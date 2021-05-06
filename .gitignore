@@ -135,6 +135,7 @@ dmypy.json
 .pyre/
 
 # Elenabotlib
+*.pyw
 *.ini
 *.bat
 *.txt

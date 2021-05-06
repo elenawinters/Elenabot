@@ -152,6 +152,12 @@ def configure_logger(_level=logging.INFO):
 _listeners = {}
 
 def add_listener(func, name='message'):
+    match name:  # yay 3.10.0a7 pep 634
+        case 'all' | '*':
+            name = 'any'
+        case 'subscribe' | 'resub' | 'resubscribe' | 'subscription':
+            name = 'sub'
+
     if name not in _listeners:
         _listeners[name] = [func]
     else:
@@ -319,7 +325,9 @@ class Session(object):
     #     pass
 
     def call_listeners(self, event, **kwargs):
-        self.log_to_console(kwargs.get('ctx'))
+        if event != 'any':
+            self.log_to_console(kwargs.get('ctx'))
+            self.call_listeners('any', **kwargs)
         # log.debug(kwargs.get('ctx'))
         if event not in _listeners:
             # log.critical('NO LISTENERS FOUND')
