@@ -183,7 +183,8 @@ class Session(object):
                 self.sock.shutdown(socket.SHUT_RDWR)
                 self.sock.close()
                 self.sock = socket.socket()
-                log.error('An exception occured but was handled' + exc)
+                log.error('An exception occured but was handled')
+                log.exception(exc)
                 return
             except Exception as e:
                 log.exception(e)
@@ -291,6 +292,9 @@ class Session(object):
             if not prs.display_name:  # TODO: Find a better way to do this
                 prs.display_name = prs.message.author
             self.call_listeners('usernotice', ctx=prs)  # this will be seperated into the different msg-id's later on
+
+            # we also call listeners for subs, raids, and rituals
+
         elif 'RECONNECT' in line:  # user influence shouldn't be possible
             log.debug(line)  # i don't know what the actually message is. the prototype isn't available
             raise ReconnectReceived('Server sent RECONNECT. Reconnecting')
