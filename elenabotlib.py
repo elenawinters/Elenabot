@@ -151,12 +151,16 @@ def configure_logger(_level=logging.INFO):
 
 _listeners = {}
 
-def add_listener(func, name='message'):
+def add_listener(func, name='any'):
     match name:  # yay 3.10.0a7 pep 634
         case 'all' | '*':
             name = 'any'
         case 'subscribe' | 'resub' | 'resubscribe' | 'subscription':
             name = 'sub'
+        case 'message':
+            name = 'msg'
+        case 'usernotice': # this may be changed
+            name = 'usn'
 
     if name not in _listeners:
         _listeners[name] = [func]
