@@ -85,7 +85,7 @@ class Elenabot:
         cscroll = tk.Scrollbar(self.tabs[chan], orient="vertical", command=self.tabs[chan].yview)
         cscroll.pack(side="right", expand=False, fill="y")
 
-        self.tabs[chan].configure(yscrollcommand=cscroll.set)
+        self.tabs[chan].configure(yscrollcommand=cscroll.set, insertbackground='white', state='disabled')
 
         # self.tabs.update({chan: new_tab})
         # self.tab_controller.grid(padx=10, pady=10)
@@ -176,7 +176,9 @@ class Elenabot:
             @event('message')
             def on_message_sent(cls, ctx):
                 to_insert = f'{ctx.display_name}: {ctx.message.content}'
+                self.tabs[ctx.message.channel].configure(state='normal')
                 self.tabs[ctx.message.channel].insert(tk.END, to_insert + '\n')
+                self.tabs[ctx.message.channel].configure(state='disabled')
                 self.tabs[ctx.message.channel].see(tk.END)
 
             # @event('all')
