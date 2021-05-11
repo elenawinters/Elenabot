@@ -21,11 +21,13 @@ import re
 
 log = logging.getLogger(__name__)
 
+
 @dataclass
 class Message:
     author: str
     channel: str
     content: str
+
 
 @dataclass
 class Badge:
@@ -35,19 +37,22 @@ class Badge:
 # @dataclass
 # class Bits:
 
+
 @dataclass
-class CLEARCHAT: # the minimum data that would be provided would just be the channel
+class CLEARCHAT:  # the minimum data that would be provided would just be the channel
     tmi_sent_ts: str = None
     ban_duration: int = None
     channel: str = None
     user: str = None
 
+
 @dataclass
 class CLEARMSG:
     login: str = None
     message: str = None
-    channel : str = None
+    channel: str = None
     target_msg_id: str = None
+
 
 @dataclass
 class ROOMSTATE:
@@ -57,8 +62,9 @@ class ROOMSTATE:
     slow: int = 0
     subs_only: bool = False
 
+
 @dataclass
-class GLOBALUSERSTATE: # in this codebase, this is considered the base struct for most actions
+class GLOBALUSERSTATE:  # in this codebase, this is considered the base struct for most actions
     badge_info: list[Badge] = None  # prediction info goes here as well, for some reason
     badges: list[Badge] = None
     color: str = None
@@ -68,10 +74,12 @@ class GLOBALUSERSTATE: # in this codebase, this is considered the base struct fo
     user_id: int = 0
     user_type: str = None
 
+
 @dataclass
 class USERSTATE(GLOBALUSERSTATE):
     mod: bool = False
     subscriber: bool = False
+
 
 @dataclass
 class PRIVMSG(USERSTATE):
@@ -84,12 +92,13 @@ class PRIVMSG(USERSTATE):
     message: Message = None
     send: str = None
 
+
 @dataclass
 class USERNOTICE(PRIVMSG):  # there are a ton of params
     login: str = None
     msg_id: str = None
     msg_param_cumulative_months: int = 0
-    msg_param_displayName: str = None # sent only on raid
+    msg_param_displayName: str = None  # sent only on raid
     msg_param_viewerCount: int = 0
     msg_param_login: str = None
     msg_param_months: int = 0
@@ -105,7 +114,7 @@ class USERNOTICE(PRIVMSG):  # there are a ton of params
     msg_param_sub_plan_name: str = None
     msg_param_sub_plan: str = None  # this can be a string or number
     msg_param_was_gifted: bool = False
-    msg_param_ritual_name: str = None # lol what? this is in the spec
+    msg_param_ritual_name: str = None  # lol what? this is in the spec
     msg_param_threshold: int = 0
     system_msg: str = None
 
@@ -117,9 +126,11 @@ class RAID:
     raider: str = None
     viewers: int = 0
 
+
 @dataclass
 class RITUAL:  # yes this is a thing
     name: str = None
+
 
 @dataclass
 class SUBSCRIPTION:  # This should be complete
@@ -139,8 +150,10 @@ class SUBSCRIPTION:  # This should be complete
     plan_name: str = None
     gifted_months: int = 0
 
+
 class ReconnectReceived(Exception):
     pass
+
 
 # you can write your own configuration if you want to, not here though. do it in your own class
 def configure_logger(_level=logging.INFO):
@@ -149,23 +162,24 @@ def configure_logger(_level=logging.INFO):
     handler.setLevel(_level)
     log.addHandler(handler)
 
+
 _listeners = {}
 
+
 def add_listener(func, name='any'):
-    match name:  # yay 3.10.0a7 pep 634
+    match name:
         case 'all' | '*':
             name = 'any'
         case 'subscribe' | 'resub' | 'resubscribe' | 'subscription':
             name = 'sub'
-        case 'message':
-            name = 'msg'
-        case 'usernotice': # this may be changed
-            name = 'usn'
+        case 'msg':
+            name = 'message'
 
     if name not in _listeners:
         _listeners[name] = [func]
     else:
         _listeners[name].append(func)
+
 
 class Session(object):
     def __init__(self):
@@ -225,6 +239,7 @@ class Session(object):
             c = x.lower() if x[0] == '#' else f'#{x.lower()}'
             self.socksend(f"JOIN {c}")
             log.debug(f'Joined {c}')
+            self.call_listeners('join_self', channel=c)
 
     def part(self, channels):  # this is currently untested
         channels = channels if type(list) else list(channels)
@@ -233,6 +248,7 @@ class Session(object):
             c = x.lower() if x[0] == '#' else f'#{x.lower()}'
             self.socksend(f"PART {c}")
             log.debug(f'Left {c}')
+            self.call_listeners('part_self', channel=c)
 
     def pong(self):
         self.socksend("PONG :tmi.twitch.tv")
@@ -255,7 +271,7 @@ class Session(object):
             items.update(self.cast(bclass, data))
 
         return items
-    
+
     def log_to_console(self, ctx):
         if hasattr(ctx, 'message'):
             log.debug(f'{type(ctx).__name__} {ctx.message.channel} >>> {ctx.display_name}: {ctx.message.content}')
@@ -268,8 +284,8 @@ class Session(object):
             casted['badges'] = [Badge(*badge.split('/')) for badge in casted['badges'].split(',')]
         return casted
 
-    # this can also parse 
-    def parse_privmsg(self, dclass, line): # some of the regex provided by RingoMär <3
+    # this can also parse
+    def parse_privmsg(self, dclass, line):  # some of the regex provided by RingoMär <3
         casted = self.cast(dclass, line)
         self.parse_base(casted)
         # casted = self.parse_base(casted)
@@ -330,7 +346,8 @@ class Session(object):
 
     def call_listeners(self, event, **kwargs):
         if event != 'any':
-            self.log_to_console(kwargs.get('ctx'))
+            # if ctx := kwargs.get('ctx', None):  # walrus zaqV
+            #     self.log_to_console(ctx)
             self.call_listeners('any', **kwargs)
         # log.debug(kwargs.get('ctx'))
         if event not in _listeners:
@@ -338,7 +355,7 @@ class Session(object):
             return
         for func in _listeners[event]:
             func(self, **kwargs)
-    
+
     def func_on_cooldown(self, func, time):
         time_now = datetime.datetime.utcnow()
         if func in self.cooldowns:
@@ -355,11 +372,13 @@ class Session(object):
 
 # @room-id=41057644;tmi-sent-ts=1619279551899 :tmi.twitch.tv CLEARCHAT #elenaberry
 
-def event(event=None): # listener/decorator for on_message
+
+def event(event=None):  # listener/decorator for on_message
     def wrapper(func):
         add_listener(func, event)
         return func
     return wrapper
+
 
 def cooldown(time):
     def decorator(func):
@@ -370,8 +389,9 @@ def cooldown(time):
         return wrapper
     return decorator
 
-def author(name): # check author
-    def decorator(func): # TODO: Add list support
+
+def author(name):  # check author
+    def decorator(func):  # TODO: Add list support
         def wrapper(self, ctx):
             if ctx.message.author == name.lower():
                 return func(self, ctx)
@@ -379,9 +399,11 @@ def author(name): # check author
         return wrapper
     return decorator
 
+
 authors = author
 
-def channel(name): # check channel
+
+def channel(name):  # check channel
     def decorator(func):
         def wrapper(self, ctx):
             def adapt(_name):
@@ -392,11 +414,12 @@ def channel(name): # check channel
         return wrapper
     return decorator
 
-def message(content, mode='eq'): # check message
+
+def message(content, mode='eq'):  # check message
     def decorator(func):
         def wrapper(self, ctx):
             def advance():
-                match mode:  # this will show an error because we using 3.10.0a7 and VSC doesn't know that. it works tho
+                match mode:
                     case 'eq' | 'equals':
                         if ctx.message.content == content:
                             return True
