@@ -16,6 +16,7 @@ import datetime
 import logging
 import socket
 import types
+import math
 import sys
 import re
 
@@ -91,6 +92,7 @@ class PRIVMSG(USERSTATE):
     tmi_sent_ts: int = 0
     message: Message = None
     send: str = None
+    action: bool = False
 
 
 @dataclass
@@ -128,7 +130,7 @@ class RAID:
 
 
 @dataclass
-class RITUAL:  # yes this is a thing
+class RITUAL:  # yes this is a thing lol
     name: str = None
 
 
@@ -207,8 +209,8 @@ class Session(object):
                 self.sock.shutdown(socket.SHUT_RDWR)
                 self.sock.close()
                 self.sock = socket.socket()
-                log.error('An exception occured but was handled')
-                log.exception(exc)
+                log.error(f'Reconnecting: {type(exc).__name__}: {exc}')
+                # log.exception(exc)
                 return
             except Exception as e:
                 log.exception(e)
@@ -232,8 +234,6 @@ class Session(object):
 
     def join(self, channels):
         channels = channels if type(list) else list(channels)
-        # if len(channels) > 1: # they work i guess
-        #     log.warn('Multiple channels are not guarenteed to work!')
         self.channels.append(channels)
         for x in channels:
             c = x.lower() if x[0] == '#' else f'#{x.lower()}'
@@ -276,48 +276,61 @@ class Session(object):
         if hasattr(ctx, 'message'):
             log.debug(f'{type(ctx).__name__} {ctx.message.channel} >>> {ctx.display_name}: {ctx.message.content}')
 
-    def parse_base(self, casted):
-        if 'badge_info' in casted:
-            casted['badge_info'] = [Badge(*badge.split('/')) for badge in casted['badge_info'].split(',')]
+    def parse_base(self, prs):
+        if hasattr(prs, 'badge_info'):
+            prs.badge_info = [Badge(*badge.split('/')) for badge in prs.badge_info.split(',')]
 
-        if 'badges' in casted:
-            casted['badges'] = [Badge(*badge.split('/')) for badge in casted['badges'].split(',')]
-        return casted
+        if hasattr(prs, 'badges'):
+            prs.badges = [Badge(*badge.split('/')) for badge in prs.badges.split(',')]
+        return prs
+
+    def create_prs(self, dclass, line):
+        return dclass(**self.cast(dclass, line))
 
     # this can also parse
-    def parse_privmsg(self, dclass, line):  # some of the regex provided by RingoMär <3
-        casted = self.cast(dclass, line)
-        self.parse_base(casted)
-        # casted = self.parse_base(casted)
-
+    def parse_privmsg(self, prs, line):  # user regex provided by RingoMär <3
         try:
             user = re.search(r":([a-zA-Z0-9-_\w]+)!([a-zA-Z0-9-_\w]+)@([a-zA-Z0-9-_\w]+)", line).group(1)
         except AttributeError:
             user = "Anon"
 
-        channel = re.search(f'{dclass.__name__} ' + r"(#[a-zA-Z0-9-_\w]+)", line).group(1)
-        msg = re.search(f'{dclass.__name__} {channel}' + r'..(.*)', line)
+        channel = re.search(f'{type(prs).__name__} ' + r"(#[a-zA-Z0-9-_\w]+)", line).group(1)
+        msg = re.search(f'{type(prs).__name__} {channel}' + r'..(.*)', line)
         if msg:
             msg = msg.group(1)
 
+        prs.message = Message(user, channel, msg)
+
         def _send_proxy(message):  # construct send function that can be called from ctx
             self.send(message, channel)
+        prs.send = _send_proxy
 
-        return dclass(**casted, message=Message(user, channel, msg), send=_send_proxy)
+    def parse_action(self, prs):
+        SOH = chr(1)  # ASCII SOH (Start of Header) Control Character
+        if hasattr(prs, 'message') and 'ACTION' in prs.message.content and SOH in prs.message.content:
+            prs.message.content = prs.message.content[len(SOH + 'ACTION '):-len(SOH)]
+            prs.action = True
+
+    def format_display_name(self, prs):
+        if hasattr(prs, 'login') and prs.login:
+            prs.message.author = prs.login
+        if not prs.display_name:
+            prs.display_name = prs.message.author
 
     def parse(self, line):  # use an elif chain or match case (maybee down the line)
         if 'PRIVMSG' in line and line[0] == '@':
-            prs = self.parse_privmsg(PRIVMSG, line)
-            if not prs.display_name:
-                prs.display_name = prs.message.author
+            prs = self.create_prs(PRIVMSG, line)
+            self.parse_privmsg(prs, line)
+            self.format_display_name(prs)
+            self.parse_action(prs)
+
             self.call_listeners('message', ctx=prs)
-        elif 'USERNOTICE' in line and line[0] == '@':  # this uses practically same structure as PRIVMSG, so we can parse the same
-            prs = self.parse_privmsg(USERNOTICE, line)  # all we gotta do is correct the user in the message struct
-            if prs.login:
-                prs.message.author = prs.login
-            if not prs.display_name:  # TODO: Find a better way to do this
-                prs.display_name = prs.message.author
-            self.call_listeners('usernotice', ctx=prs)  # this will be seperated into the different msg-id's later on
+        elif 'USERNOTICE' in line and line[0] == '@':
+            prs = self.create_prs(USERNOTICE, line)
+            self.parse_privmsg(prs, line)
+            self.format_display_name(prs)
+
+            self.call_listeners('usernotice', ctx=prs)
 
             # we also call listeners for subs, raids, and rituals
 
@@ -325,33 +338,17 @@ class Session(object):
             log.debug(line)  # i don't know what the actually message is. the prototype isn't available
             raise ReconnectReceived('Server sent RECONNECT. Reconnecting')
 
-    def receive(self):
-        buffer = ""
-        buffer += self.sock.recv(2048).decode('utf-8')  # again, only used once, no need for wrapper
-        temp = buffer.split("\r\n")
-        buffer = temp.pop()
-        # self.ping(line)
-        for line in temp:
-            # log.debug(line)
+    def receive(self):  # I've compressed the shit outta this code
+        for line in self.sock.recv(16384).decode('utf-8', 'replace').split("\r\n")[:-1]:
             self.ping(line)
             self.parse(line)
-            # if line[0] == '@':
-            #     self.parse(line)
-
-        pass
-
-    # def privmsg(self, ctx, message):
-    #     self.socksend(f'PRIVMSG {channel}: {message}')
-    #     pass
 
     def call_listeners(self, event, **kwargs):
         if event != 'any':
             # if ctx := kwargs.get('ctx', None):  # walrus zaqV
             #     self.log_to_console(ctx)
             self.call_listeners('any', **kwargs)
-        # log.debug(kwargs.get('ctx'))
         if event not in _listeners:
-            # log.critical('NO LISTENERS FOUND')
             return
         for func in _listeners[event]:
             func(self, **kwargs)
@@ -370,7 +367,8 @@ class Session(object):
     def send(self, message, channel):
         self.socksend(f'PRIVMSG {channel} :{message}')  # placement of the : is important :zaqPbt:
 
-# @room-id=41057644;tmi-sent-ts=1619279551899 :tmi.twitch.tv CLEARCHAT #elenaberry
+    def maximize_msg(self, content, offset=0):
+        return content * math.trunc((500 - offset) / len(content))  # need to trunc cuz we always round down
 
 
 def event(event=None):  # listener/decorator for on_message

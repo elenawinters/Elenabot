@@ -1,4 +1,3 @@
-from tkinter.constants import S
 from elenabotlib import *
 from tkinter import ttk
 import tkinter as tk
@@ -11,6 +10,31 @@ import random
 # Kerobel suggested Qt as a UI library. I'll probably make a seperate version with Qt later (maybe)
 
 
+@dataclass
+class Listener:
+    event: str
+
+
+@dataclass
+class MemoryState:
+    login: str = None,
+    listeners: list[Listener] = None
+
+
+@dataclass
+class ScrollbarPosition:
+    hi: int = 0
+    lo: int = 0
+
+
+@dataclass
+class TabStruct:
+    tab: str = None
+    limit: int = 2000
+    upper: int = 0
+    scroll_pos: ScrollbarPosition = None
+
+
 class Elenabot:
     def __init__(self):
         self.setup_variables()
@@ -20,7 +44,7 @@ class Elenabot:
         self.app.mainloop()
 
     def setup_variables(self):
-        # self.sticky_all = tk.E + tk.W + tk.N + tk.S
+        self.state = MemoryState()
         self.bg_color = '#2C2F33'
         self.fg_color = '#23272A'
         self.greyple = '#99AAB5'
@@ -31,20 +55,19 @@ class Elenabot:
         style.theme_create('elenabot', settings={
             "TNotebook": {
                 "configure": {
-                    "background": self.fg_color,  # Your margin color
-                    # "tabmargins": [2, 5, 0, 0],  # margins: left, top, right, separator
+                    "background": self.fg_color  # Your margin color
                 }
             },
             "TNotebook.Tab": {
                 "configure": {
                     "background": self.fg_color,  # tab color when not selected
                     "padding": [10, 2],  # [space between text and horizontal tab-button border, space between text and vertical tab_button border]
+                    "focuscolor": self.bg_color,  # match focus color so the lines stop showing Madge
                     "font": "white"
                 },
                 "map": {
                     "foreground": [("selected", "white"), ("!disabled", self.greyple)],
-                    "background": [("selected", self.bg_color)],  # Tab color when selected
-                    # "expand": [("selected", [1, 1, 1, 0])]  # text margins
+                    "background": [("selected", self.bg_color)]  # Tab color when selected
                 }
             }
         })
@@ -57,42 +80,55 @@ class Elenabot:
         self.setup_style()
 
         # setup left side
-        self.event_list = tk.Frame(self.app, width=200, height=400, bg=self.fg_color)
+        self.event_list = tk.Frame(self.app, width=200, height=20, bg=self.fg_color)
         # self.event_list.grid(row=0, column=0, padx=10, pady=5)
 
         # https://www.geeksforgeeks.org/creating-tabbed-widget-with-python-tkinter/
         # https://stackoverflow.com/a/45850468/14125122
         # https://stackoverflow.com/a/61236766/14125122
-        self.tab_frame = tk.Frame(self.app, width=200, height=400, bg=self.fg_color)
-        # self.event_list.grid(row=1, column=1, padx=10, pady=5)
+        self.tab_frame = tk.Frame(self.app, width=80, height=80, bg=self.fg_color)
+        # self.tab_frame = tk.Frame(self.app, bg=self.fg_color)
         self.tab_controller = ttk.Notebook(self.tab_frame)
-        # self.tab_controller = CustomNotebook(self.tab_frame)
         self.tab_controller.pack(expand=True, fill='both', padx=10, pady=10)
 
+        # adding this somehow broke everything? I'll look into it later
+        # self.mb_frame = tk.Frame(self.app, bg=self.fg_color)
+        self.mb_entry = tk.Entry(self.tab_frame, bg=self.bg_color, fg='white')
+        self.mb_entry.pack(expand=False, fill='both', padx=10, pady=(0, 10))
+        self.mb_entry.configure(insertbackground=self.greyple)
+
+        # self.event_list.pack(padx=10, pady=10)
+        # self.tab_frame.pack(padx=(0, 10), pady=10)
+
         self.event_list.grid(row=0, column=0, padx=10, pady=10, sticky='nsew')
-        self.tab_frame.grid(row=0, column=1, padx=10, pady=10, sticky='nsew')
+        self.tab_frame.grid(row=0, column=1, padx=(0, 10), pady=10, sticky='nsew')
+        # self.mb_frame.grid(row=1, column=1, padx=10, pady=10, sticky='nsew')
         self.app.columnconfigure(1, weight=1)  # magic
         self.app.rowconfigure(0, weight=1)
 
     def add_tab(self, chan):
         tab = tk.Frame(self.tab_controller, bg=self.bg_color)
         self.tab_controller.add(tab, text=chan)
-        # self.tabs[chan] = new_tab
 
-        self.tabs[chan] = tk.Text(tab, bg=self.fg_color, fg="white")
-        self.tabs[chan].pack(side='left', padx=5, pady=5, expand=True, fill='both')
+        self.tabs[chan] = TabStruct()
 
-        cscroll = tk.Scrollbar(self.tabs[chan], orient="vertical", command=self.tabs[chan].yview)
+        self.tabs[chan].tab = tk.Text(tab, bg=self.fg_color, fg="white")
+        self.tabs[chan].tab.pack(side='left', padx=5, pady=5, expand=True, fill='both')
+
+        cscroll = tk.Scrollbar(self.tabs[chan].tab, orient="vertical", command=self.tabs[chan].tab.yview)
         cscroll.pack(side="right", expand=False, fill="y")
 
-        self.tabs[chan].configure(yscrollcommand=cscroll.set, insertbackground='white', state='disabled')
+        def scrollpos(y0, y1):
+            cscroll.set(y0, y1)
+            self.tabs[chan].scroll_pos = ScrollbarPosition(float(y0), float(y1))
 
-        # self.tabs.update({chan: new_tab})
-        # self.tab_controller.grid(padx=10, pady=10)
-        # self.
+        self.tabs[chan].tab.configure(yscrollcommand=scrollpos, insertbackground=self.fg_color, state='disabled')
+
+    def destroy_channel(self):
+        return NotImplementedError
 
     def load_listeners(self):
-        self.listeners = {}
+        pass
 
     def save_listeners(self):
         pass
@@ -173,13 +209,33 @@ class Elenabot:
                 if channel not in self.tabs:
                     self.add_tab(channel)
 
-            @event('message')
+            @event('part_self')
+            def on_bot_part_channel(cls, channel):
+                if channel in self.tabs:
+                    self.destroy_tab(channel)
+
+            @event('message')  # https://stackoverflow.com/a/34769569/14125122
             def on_message_sent(cls, ctx):
-                to_insert = f'{ctx.display_name}: {ctx.message.content}'
-                self.tabs[ctx.message.channel].configure(state='normal')
-                self.tabs[ctx.message.channel].insert(tk.END, to_insert + '\n')
-                self.tabs[ctx.message.channel].configure(state='disabled')
-                self.tabs[ctx.message.channel].see(tk.END)
+                to_insert = f'{ctx.display_name}: {ctx.message.content}\n'
+
+                self.tabs[ctx.message.channel].tab.configure(state='normal')
+                self.tabs[ctx.message.channel].tab.insert(tk.END, to_insert)
+
+                del_line = 0
+                currline = int(self.tabs[ctx.message.channel].tab.index('end-1c').split('.')[0])
+                if int(currline > self.tabs[ctx.message.channel].limit):
+                    del_line = currline - self.tabs[ctx.message.channel].limit
+                    self.tabs[ctx.message.channel].tab.delete(f'{del_line}.0', f'{del_line + 1}.0')
+
+                self.tabs[ctx.message.channel].tab.configure(state='disabled')
+
+                line_count = currline - del_line
+                scroll_line = self.tabs[ctx.message.channel].scroll_pos.lo * line_count
+                if line_count - scroll_line <= 3:
+                    self.tabs[ctx.message.channel].tab.see(tk.END)
+
+                # log.debug(f'Line Count: {line_count}; Scrollbar Line: {scroll_line}; Difference: {line_count - scroll_line}')
+
 
             # @event('all')
             # def listen_for_event(cls, ctx):
