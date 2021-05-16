@@ -48,6 +48,7 @@ class Elenabot:
         self.bg_color = '#2C2F33'
         self.fg_color = '#23272A'
         self.greyple = '#99AAB5'
+        self.current_tab = None
         self.tabs = {}
 
     def setup_style(self):
@@ -91,8 +92,7 @@ class Elenabot:
         self.tab_controller = ttk.Notebook(self.tab_frame)
         self.tab_controller.pack(expand=True, fill='both', padx=10, pady=10)
 
-        # adding this somehow broke everything? I'll look into it later
-        # self.mb_frame = tk.Frame(self.app, bg=self.fg_color)
+        # This needs to be incorporated into the add_tab function somehow
         self.mb_entry = tk.Entry(self.tab_frame, bg=self.bg_color, fg='white')
         self.mb_entry.pack(expand=False, fill='both', padx=10, pady=(0, 10))
         self.mb_entry.configure(insertbackground=self.greyple)
@@ -218,6 +218,8 @@ class Elenabot:
             def on_message_sent(cls, ctx):
                 to_insert = f'{ctx.display_name}: {ctx.message.content}\n'
 
+                scroll_pos = self.tabs[ctx.message.channel].scroll_pos.lo
+
                 self.tabs[ctx.message.channel].tab.configure(state='normal')
                 self.tabs[ctx.message.channel].tab.insert(tk.END, to_insert)
 
@@ -230,9 +232,11 @@ class Elenabot:
                 self.tabs[ctx.message.channel].tab.configure(state='disabled')
 
                 line_count = currline - del_line
-                scroll_line = self.tabs[ctx.message.channel].scroll_pos.lo * line_count
+                scroll_line = scroll_pos * line_count
                 if line_count - scroll_line <= 3:
                     self.tabs[ctx.message.channel].tab.see(tk.END)
+
+                # log.debug(f'{ctx.message.channel}: Line Count: {line_count}; Scrollbar Line: {scroll_line}; Difference: {diff}')
 
             # @event('all')
             # def listen_for_event(cls, ctx):
