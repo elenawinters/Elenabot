@@ -112,10 +112,10 @@ class Elenabot:
 
         self.tabs[chan] = TabStruct()
 
-        self.tabs[chan].tab = tk.Text(tab, bg=self.fg_color, fg="white")
+        self.tabs[chan].tab = tk.Text(tab, bg=self.fg_color, fg="white", width=0, height=0)
         self.tabs[chan].tab.pack(side='left', padx=5, pady=5, expand=True, fill='both')
 
-        cscroll = tk.Scrollbar(self.tabs[chan].tab, orient="vertical", command=self.tabs[chan].tab.yview)
+        cscroll = tk.Scrollbar(tab, orient="vertical", command=self.tabs[chan].tab.yview)
         cscroll.pack(side="right", expand=False, fill="y")
 
         def scrollpos(y0, y1):
@@ -124,7 +124,7 @@ class Elenabot:
 
         self.tabs[chan].tab.configure(yscrollcommand=scrollpos, insertbackground=self.fg_color, state='disabled')
 
-    def destroy_channel(self):
+    def destroy_tab(self):
         return NotImplementedError
 
     def load_listeners(self):
@@ -233,9 +233,6 @@ class Elenabot:
                 scroll_line = self.tabs[ctx.message.channel].scroll_pos.lo * line_count
                 if line_count - scroll_line <= 3:
                     self.tabs[ctx.message.channel].tab.see(tk.END)
-
-                # log.debug(f'Line Count: {line_count}; Scrollbar Line: {scroll_line}; Difference: {line_count - scroll_line}')
-
 
             # @event('all')
             # def listen_for_event(cls, ctx):
