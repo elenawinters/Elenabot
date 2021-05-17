@@ -297,23 +297,15 @@ class Session(object):
         dprs = self.parse_base(dprs)
         return dclass(**dprs)
 
-    def parse_channel(self, prs, line):
-        return re.search(f'{type(prs).__name__} ' + r"(#[a-zA-Z0-9-_\w]+)", line).group(1)
-
-    def parse_message(self, prs, line, chan):
-        msg = re.search(f'{type(prs).__name__} {chan}' + r'..(.*)', line)
-        if msg: return msg.group(1)
-        return msg
-
-    # this can also parse
     def parse_privmsg(self, prs, line):  # user regex provided by RingoMär <3
         try:
             user = re.search(r":([a-zA-Z0-9-_\w]+)!([a-zA-Z0-9-_\w]+)@([a-zA-Z0-9-_\w]+)", line).group(1)
         except AttributeError:
             user = "Anon"
 
-        channel = self.parse_channel(prs, line)
-        msg = self.parse_message(prs, line, channel)
+        channel = re.search(f'{type(prs).__name__} ' + r"(#[a-zA-Z0-9-_\w]+)", line).group(1)
+        msg = re.search(f'{type(prs).__name__} {channel}' + r'..(.*)', line)
+        if msg: msg = msg.group(1)
 
         prs.message = Message(user, channel, msg)
 
