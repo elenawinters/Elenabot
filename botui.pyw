@@ -17,8 +17,10 @@ class Listener:
 
 @dataclass
 class MemoryState:
-    login: str = None,
+    login: str = None
     listeners: list[Listener] = None
+    user: dict[str, USERSTATE] = field(default_factory=dict)
+    schedule: str = None
 
 
 @dataclass
@@ -48,7 +50,6 @@ class Elenabot:
         self.bg_color = '#2C2F33'
         self.fg_color = '#23272A'
         self.greyple = '#99AAB5'
-        self.current_tab = None
         self.tabs = {}
 
     def setup_style(self):
@@ -92,10 +93,21 @@ class Elenabot:
         self.tab_controller = ttk.Notebook(self.tab_frame)
         self.tab_controller.pack(expand=True, fill='both', padx=10, pady=10)
 
+        # https://stackoverflow.com/a/14012720/14125122  Use this for getting channel name
         # This needs to be incorporated into the add_tab function somehow
         self.mb_entry = tk.Entry(self.tab_frame, bg=self.bg_color, fg='white')
-        self.mb_entry.pack(expand=False, fill='both', padx=10, pady=(0, 10))
+        self.mb_entry.pack(expand=True, fill='both', padx=10, pady=(0, 10), side='left')
         self.mb_entry.configure(insertbackground=self.greyple)
+
+        def process_send(event=None):
+            if msg := self.mb_entry.get():
+                self.mb_entry.delete(0, 'end')
+                self.send_message(msg)
+
+        self.mb_entry.bind('<Return>', process_send)
+
+        send_button = tk.Button(self.tab_frame, fg="white", bg=self.bg_color, height=1, width=3, command=process_send)
+        send_button.pack(expand=False, fill='both', padx=(0, 10), pady=(0, 10), side='right')
 
         # self.event_list.pack(padx=10, pady=10)
         # self.tab_frame.pack(padx=(0, 10), pady=10)
@@ -105,6 +117,12 @@ class Elenabot:
         # self.mb_frame.grid(row=1, column=1, padx=10, pady=10, sticky='nsew')
         self.app.columnconfigure(1, weight=1)  # magic
         self.app.rowconfigure(0, weight=1)
+
+    def send_message(self, message):
+        chan = self.tab_controller.tab(self.tab_controller.select(), 'text')
+        to_insert = f'{self.cls.nick}: {message}\n'
+        self.update_messages_widget(to_insert, chan)
+        self.cls.send(message, chan)
 
     def add_tab(self, chan):
         tab = tk.Frame(self.tab_controller, bg=self.bg_color)
@@ -189,13 +207,33 @@ class Elenabot:
             self.config.read(self.cfile)
             self.setup_thread()
 
-        # confwin.destroy()
-
     def setup_thread(self):
         self.load_listeners()
         channels = ast.literal_eval(self.config['twitch']['channels'])
         thread_args = (self.config['twitch']['oauth'], self.config['twitch']['nickname'], channels)
         threading.Thread(target=self.start_program, name='ElenabotlibWrapper', daemon=True, args=thread_args).start()
+
+    def update_messages_widget(self, message, chan):
+        scroll_pos = self.tabs[chan].scroll_pos.lo
+
+        self.tabs[chan].tab.configure(state='normal')
+        self.tabs[chan].tab.insert(tk.END, message)
+
+        del_line = 0
+        currline = int(self.tabs[chan].tab.index('end-1c').split('.')[0])
+        if int(currline > self.tabs[chan].limit):
+            del_line = currline - self.tabs[chan].limit
+            self.tabs[chan].tab.delete(f'{del_line}.0', f'{del_line + 1}.0')
+
+        self.tabs[chan].tab.configure(state='disabled')
+
+        line_count = currline - del_line
+        scroll_line = scroll_pos * line_count
+        if line_count - scroll_line <= 3:
+            self.tabs[chan].tab.see(tk.END)
+
+    def check_schedule(self, ctx):
+        pass
 
     def start_program(self, oauth, nickname, channels):
         class wrapping(Session):
@@ -217,40 +255,28 @@ class Elenabot:
             @event('message')  # https://stackoverflow.com/a/34769569/14125122
             def on_message_sent(cls, ctx):
                 to_insert = f'{ctx.display_name}: {ctx.message.content}\n'
-
-                scroll_pos = self.tabs[ctx.message.channel].scroll_pos.lo
-
-                self.tabs[ctx.message.channel].tab.configure(state='normal')
-                self.tabs[ctx.message.channel].tab.insert(tk.END, to_insert)
-
-                del_line = 0
-                currline = int(self.tabs[ctx.message.channel].tab.index('end-1c').split('.')[0])
-                if int(currline > self.tabs[ctx.message.channel].limit):
-                    del_line = currline - self.tabs[ctx.message.channel].limit
-                    self.tabs[ctx.message.channel].tab.delete(f'{del_line}.0', f'{del_line + 1}.0')
-
-                self.tabs[ctx.message.channel].tab.configure(state='disabled')
-
-                line_count = currline - del_line
-                scroll_line = scroll_pos * line_count
-                if line_count - scroll_line <= 3:
-                    self.tabs[ctx.message.channel].tab.see(tk.END)
-
+                self.update_messages_widget(to_insert, ctx.message.channel)
                 # log.debug(f'{ctx.message.channel}: Line Count: {line_count}; Scrollbar Line: {scroll_line}; Difference: {diff}')
+
+            @event('userstate')
+            def set_userstate_channel(cls, ctx):
+                self.check_schedule(ctx)
+
+            # @event('notice')
+            # def receive_notice(cls, ctx):
+            #     self.check_schedule(ctx)
 
             # @event('all')
             # def listen_for_event(cls, ctx):
             #     self.process_event(ctx)
-            #     pass
+
         try:
             wrapping()
         except Exception as exc:
             log.exception(exc)
 
-    # def process_event(self, ctx):  # this is running in the scope of the wrapper. 'self' is uniform?
-    #     # log.debug(cls)
-    #     # log.debug(ctx)
-    #     pass
+    # def process_event(self, ctx):
+    #     name = type(ctx).__name__
 
 
 if __name__ == '__main__':

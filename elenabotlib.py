@@ -25,9 +25,9 @@ log = logging.getLogger(__name__)
 
 @dataclass
 class Message:
-    author: str
-    channel: str
-    content: str
+    author: str = None
+    channel: str = None
+    content: str = None
 
 
 @dataclass
@@ -65,12 +65,19 @@ class ROOMSTATE:
 
 
 @dataclass
+class NOTICE:
+    msg_id: str = None
+    channel: str = None
+    message: str = None
+
+
+@dataclass
 class GLOBALUSERSTATE:  # in this codebase, this is considered the base struct for most actions
     badge_info: list[Badge] = None  # prediction info goes here as well, for some reason
     badges: list[Badge] = None
     color: str = None
     display_name: str = None
-    emote_sets: str = None
+    emote_sets: list[int] = None
     turbo: bool = False
     user_id: int = 0
     user_type: str = None
@@ -188,6 +195,7 @@ class Session(object):
         self.host = 'irc.twitch.tv'
         self.port = 6667
         self.sock = socket.socket()
+        self.userstate = None
         self.cooldowns = {}
         self.channels = []
 
@@ -276,16 +284,30 @@ class Session(object):
         if hasattr(ctx, 'message'):
             log.debug(f'{type(ctx).__name__} {ctx.message.channel} >>> {ctx.display_name}: {ctx.message.content}')
 
-    def parse_base(self, prs):
-        if hasattr(prs, 'badge_info'):
-            prs.badge_info = [Badge(*badge.split('/')) for badge in prs.badge_info.split(',')]
+    def parse_base(self, dprs: dict):  # this needs to be done with dictionaries unfortunately
+        badge_tuple = ('badge_info', 'badges')
+        for badge_type in badge_tuple:
+            if badge_type in dprs:
+                dprs[badge_type] = [Badge(*badge.split('/')) for badge in dprs[badge_type].split(',')]
+        emote_tuple = ('emote_sets', 'emotes')
+        for emote_type in emote_tuple:
+            if emote_type in dprs:
+                dprs[emote_type] = [int(x) for x in dprs[emote_type].split(',')]
 
-        if hasattr(prs, 'badges'):
-            prs.badges = [Badge(*badge.split('/')) for badge in prs.badges.split(',')]
-        return prs
+        return dprs
 
     def create_prs(self, dclass, line):
-        return dclass(**self.cast(dclass, line))
+        dprs = self.cast(dclass, line)
+        dprs = self.parse_base(dprs)
+        return dclass(**dprs)
+
+    def parse_channel(self, prs, line):
+        return re.search(f'{type(prs).__name__} ' + r"(#[a-zA-Z0-9-_\w]+)", line).group(1)
+
+    def parse_message(self, prs, chan, line):
+        msg = re.search(f'{type(prs).__name__} {chan}' + r'..(.*)', line)
+        if msg: return msg.group(1)
+        return msg
 
     # this can also parse
     def parse_privmsg(self, prs, line):  # user regex provided by RingoMär <3
@@ -294,16 +316,19 @@ class Session(object):
         except AttributeError:
             user = "Anon"
 
-        channel = re.search(f'{type(prs).__name__} ' + r"(#[a-zA-Z0-9-_\w]+)", line).group(1)
-        msg = re.search(f'{type(prs).__name__} {channel}' + r'..(.*)', line)
-        if msg:
-            msg = msg.group(1)
+        channel = self.parse_channel(prs, line)
+        msg = self.parse_message(prs, channel, line)
 
         prs.message = Message(user, channel, msg)
 
         def _send_proxy(message):  # construct send function that can be called from ctx
             self.send(message, channel)
         prs.send = _send_proxy
+
+    # def assign_send_proxy(self, prs, channel):
+    #     def _send_proxy(message):  # construct send function that can be called from ctx
+    #         self.send(message, channel)
+    #     prs.send = _send_proxy
 
     def parse_action(self, prs):
         SOH = chr(1)  # ASCII SOH (Start of Header) Control Character
@@ -317,7 +342,7 @@ class Session(object):
         if not prs.display_name:
             prs.display_name = prs.message.author
 
-    def parse(self, line):  # use an elif chain or match case (maybee down the line)
+    def parse(self, line):  # use an elif chain or match case (maybeeee down the line)
         if 'PRIVMSG' in line and line[0] == '@':
             prs = self.create_prs(PRIVMSG, line)
             self.parse_privmsg(prs, line)
@@ -338,8 +363,25 @@ class Session(object):
             log.debug(line)  # i don't know what the actually message is. the prototype isn't available
             raise ReconnectReceived('Server sent RECONNECT. Reconnecting')
 
+        elif 'USERSTATE' in line and line[0] == '@':
+            prs = self.create_prs(USERSTATE, line)
+            prs.channel = self.parse_channel(prs, line)
+            self.userstate = prs
+
+            log.debug(prs)
+            self.call_listeners('userstate', ctx=prs)
+
+        elif 'NOTICE' in line and line[0] == '@':
+            prs = self.create_prs(NOTICE, line)
+            prs.channel = self.parse_channel(prs, line)
+            prs.message = self.parse_message(prs, prs.channel, line)
+
+            log.debug(prs)
+            self.call_listeners('notice', ctx=prs)
+
     def receive(self):  # I've compressed the shit outta this code
         for line in self.sock.recv(16384).decode('utf-8', 'replace').split("\r\n")[:-1]:
+            # log.debug(line)
             self.ping(line)
             self.parse(line)
 
