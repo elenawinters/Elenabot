@@ -24,6 +24,12 @@ log = logging.getLogger(__name__)
 
 
 @dataclass
+class Badge:
+    name: str
+    version: int
+
+
+@dataclass
 class Message:
     author: str = None
     channel: str = None
@@ -31,28 +37,23 @@ class Message:
 
 
 @dataclass
-class Badge:
-    name: str
-    version: int
-
-# @dataclass
-# class Bits:
+class Messageable:
+    message: Message = None
+    send: str = None
 
 
 @dataclass
-class CLEARCHAT:  # the minimum data that would be provided would just be the channel
+class CLEARCHAT(Messageable):  # the minimum data that would be provided would just be the channel
     tmi_sent_ts: str = None
     ban_duration: int = None
-    channel: str = None
-    user: str = None
 
 
-@dataclass
-class CLEARMSG:
-    login: str = None
-    message: str = None
-    channel: str = None
-    target_msg_id: str = None
+# @dataclass  # NO CLEAR EXAMPLES AT THE MOMENT
+# class CLEARMSG:
+#     login: str = None
+#     message: str = None
+#     channel: str = None
+#     target_msg_id: str = None
 
 
 @dataclass
@@ -65,10 +66,8 @@ class ROOMSTATE:
 
 
 @dataclass
-class NOTICE:
+class NOTICE(Messageable):
     msg_id: str = None
-    channel: str = None
-    message: str = None
 
 
 @dataclass
@@ -84,7 +83,7 @@ class GLOBALUSERSTATE:  # in this codebase, this is considered the base struct f
 
 
 @dataclass
-class USERSTATE(GLOBALUSERSTATE):
+class USERSTATE(GLOBALUSERSTATE, Messageable):
     mod: bool = False
     subscriber: bool = False
 
@@ -97,8 +96,6 @@ class PRIVMSG(USERSTATE):
     id: str = None
     room_id: int = 0
     tmi_sent_ts: int = 0
-    message: Message = None
-    send: str = None
     action: bool = False
 
 
@@ -195,7 +192,6 @@ class Session(object):
         self.host = 'irc.twitch.tv'
         self.port = 6667
         self.sock = socket.socket()
-        self.userstate = None
         self.cooldowns = {}
         self.channels = []
 
@@ -304,7 +300,7 @@ class Session(object):
     def parse_channel(self, prs, line):
         return re.search(f'{type(prs).__name__} ' + r"(#[a-zA-Z0-9-_\w]+)", line).group(1)
 
-    def parse_message(self, prs, chan, line):
+    def parse_message(self, prs, line, chan):
         msg = re.search(f'{type(prs).__name__} {chan}' + r'..(.*)', line)
         if msg: return msg.group(1)
         return msg
@@ -317,18 +313,16 @@ class Session(object):
             user = "Anon"
 
         channel = self.parse_channel(prs, line)
-        msg = self.parse_message(prs, channel, line)
+        msg = self.parse_message(prs, line, channel)
 
         prs.message = Message(user, channel, msg)
 
+        self.assign_send_proxy(prs, channel)
+
+    def assign_send_proxy(self, prs, channel):
         def _send_proxy(message):  # construct send function that can be called from ctx
             self.send(message, channel)
         prs.send = _send_proxy
-
-    # def assign_send_proxy(self, prs, channel):
-    #     def _send_proxy(message):  # construct send function that can be called from ctx
-    #         self.send(message, channel)
-    #     prs.send = _send_proxy
 
     def parse_action(self, prs):
         SOH = chr(1)  # ASCII SOH (Start of Header) Control Character
@@ -365,16 +359,15 @@ class Session(object):
 
         elif 'USERSTATE' in line and line[0] == '@':
             prs = self.create_prs(USERSTATE, line)
-            prs.channel = self.parse_channel(prs, line)
-            self.userstate = prs
+            self.parse_privmsg(prs, line)
+            self.format_display_name(prs)
 
             log.debug(prs)
             self.call_listeners('userstate', ctx=prs)
 
         elif 'NOTICE' in line and line[0] == '@':
             prs = self.create_prs(NOTICE, line)
-            prs.channel = self.parse_channel(prs, line)
-            prs.message = self.parse_message(prs, prs.channel, line)
+            self.parse_privmsg(prs, line)
 
             log.debug(prs)
             self.call_listeners('notice', ctx=prs)
