@@ -317,9 +317,6 @@ class Session(object):
 
         prs.message = Message(user, channel, msg)
 
-        self.assign_send_proxy(prs, channel)
-
-    def assign_send_proxy(self, prs, channel):
         def _send_proxy(message):  # construct send function that can be called from ctx
             self.send(message, channel)
         prs.send = _send_proxy
