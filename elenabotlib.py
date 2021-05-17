@@ -288,7 +288,7 @@ class Session(object):
         emote_tuple = ('emote_sets', 'emotes')
         for emote_type in emote_tuple:
             if emote_type in dprs:
-                dprs[emote_type] = [int(x) for x in dprs[emote_type].split(',')]
+                dprs[emote_type] = [x for x in dprs[emote_type].split(',')]
 
         return dprs
 
@@ -344,6 +344,7 @@ class Session(object):
             self.parse_action(prs)
 
             self.call_listeners('message', ctx=prs)
+
         elif 'USERNOTICE' in line and line[0] == '@':
             prs = self.create_prs(USERNOTICE, line)
             self.parse_privmsg(prs, line)
@@ -363,6 +364,7 @@ class Session(object):
             self.format_display_name(prs)
 
             log.debug(prs)
+
             self.call_listeners('userstate', ctx=prs)
 
         elif 'NOTICE' in line and line[0] == '@':
@@ -370,6 +372,7 @@ class Session(object):
             self.parse_privmsg(prs, line)
 
             log.debug(prs)
+
             self.call_listeners('notice', ctx=prs)
 
     def receive(self):  # I've compressed the shit outta this code
