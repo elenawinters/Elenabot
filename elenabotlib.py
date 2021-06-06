@@ -341,11 +341,10 @@ class Session(object):
 
             self.call_listeners('usernotice', ctx=prs)
 
-            # we also call listeners for subs, raids, and rituals
+            # we also call listeners for subs, raids, and rituals (TODO)
 
         elif 'RECONNECT' in line:  # user influence shouldn't be possible
-            log.debug(line)  # i don't know what the actually message is. the prototype isn't available
-            raise ReconnectReceived('Server sent RECONNECT. Reconnecting')
+            raise ReconnectReceived('Server sent RECONNECT.')
 
         elif 'USERSTATE' in line and line[0] == '@':
             prs = self.create_prs(USERSTATE, line)
@@ -363,6 +362,17 @@ class Session(object):
             log.debug(prs)
 
             self.call_listeners('notice', ctx=prs)
+
+        elif 'CLEARCHAT' in line and line[0] == '@':
+            prs = self.create_prs(CLEARCHAT, line)
+            self.parse_privmsg(prs, line)
+
+            log.debug(prs)
+
+            self.call_listeners('clearchat', ctx=prs)
+
+        elif 'CLEARMSG' in line and line[0] == '@':
+            log.debug(line)
 
     def receive(self):  # I've compressed the shit outta this code
         for line in self.sock.recv(16384).decode('utf-8', 'replace').split("\r\n")[:-1]:

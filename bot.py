@@ -3,6 +3,7 @@ import sys, os, ast
 import configparser
 import random
 
+
 class Elenabot(Session):
     def __init__(self):
         super().__init__()  # unfortunately, this is a required call for elenabotlib implemented like this
@@ -22,19 +23,23 @@ class Elenabot(Session):
         channels = ast.literal_eval(config['twitch']['channels'])
         self.start(config['twitch']['oauth'], config['twitch']['nickname'], channels)
 
-    # @event('message')
-    # @author('elenaberry')
+    # @event('userstate')
     # @channel('elenaberry')
     # @cooldown(60)
-    # @message('test')
-    # def bot_test(self, ctx):
-    #     ctx.send('This is a test message')
+    # def test_message_length(self, ctx):
+    #     ctx.send(self.maximize_msg('jessiLurk '))
 
     @event('message')
     @message('Sadge 👑 🐘')
     @cooldown(60)
     def queen_cutie(self, ctx):
         ctx.send('Sadge 👑 🐘')
+
+    @event('message')
+    @message('COPIUM')
+    @cooldown(60)
+    def copium(self, ctx):
+        ctx.send('COPIUM')
 
     @event('message')
     @message('AYAYA', 'in')
@@ -109,11 +114,6 @@ class Elenabot(Session):
     def zaq_nom(self, ctx):
         ctx.send('zaqPop')
 
-    @event('message')
-    @author('dwingert')
-    @message('Did you know', 'sw')
-    def dwin_did_you_know(self, ctx):
-        ctx.send("did you know that y'all are cute paq")
 
 if __name__ == '__main__':
     configure_logger(logging.DEBUG)
