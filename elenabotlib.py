@@ -12,6 +12,7 @@
 """
 
 from dataclasses import dataclass, field
+import traceback
 import datetime
 import logging
 import socket
@@ -302,14 +303,15 @@ class Session(object):
         dprs = self.parse_base(dprs)
         return dclass(**dprs)
 
-    def parse_privmsg(self, prs: Messageable, line: str) -> None:  # user regex provided by RingoMär <3
+    def parse_privmsg(self, prs: Messageable, line: str, oprs: Messageable = None) -> None:  # user regex provided by RingoMär <3
+        class_name = type(oprs).__name__ if oprs else type(prs).__name__  # basically only for the usernotice subcalls
         try:
             user = re.search(r":([a-zA-Z0-9-_\w]+)!([a-zA-Z0-9-_\w]+)@([a-zA-Z0-9-_\w]+)", line).group(1)
         except AttributeError:
             user = "Anon"
 
-        channel = re.search(f'{type(prs).__name__} ' + r"(#[a-zA-Z0-9-_\w]+)", line).group(1)
-        msg = re.search(f'{type(prs).__name__} {channel}' + r'..(.*)', line)
+        channel = re.search(f'{class_name} ' + r"(#[a-zA-Z0-9-_\w]+)", line).group(1)
+        msg = re.search(f'{class_name} {channel}' + r'..(.*)', line)
         if msg: msg = msg.group(1)
 
         prs.message = Message(user, channel, msg)
@@ -341,7 +343,7 @@ class Session(object):
 
     def parse_ritual(self, oprs: USERNOTICE, line: str) -> None:
         prs = self.create_prs(RITUAL, line)
-        self.parse_privmsg(prs, line)
+        self.parse_privmsg(prs, line, oprs)
         self.format_display_name(prs)
 
         prs.name = oprs.msg_param_ritual_name
@@ -351,7 +353,7 @@ class Session(object):
 
     def parse_subscription(self, oprs: USERNOTICE, line: str) -> None:
         prs = self.create_prs(SUBSCRIPTION, line)
-        self.parse_privmsg(prs, line)
+        self.parse_privmsg(prs, line, oprs)
         self.format_display_name(prs)
 
         # this will be revisited to dataclass some of these things together
@@ -373,7 +375,7 @@ class Session(object):
 
     def parse_raid(self, oprs: USERNOTICE, line: str) -> None:
         prs = self.create_prs(RAID, line)
-        self.parse_privmsg(prs, line)
+        self.parse_privmsg(prs, line, oprs)
         self.format_display_name(prs)
 
         prs.raider = oprs.msg_param_displayName if oprs.msg_param_displayName else oprs.msg_param_login
