@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 import datetime
 import logging
 import socket
-import types
+import typing
 import math
 import sys
 import re
@@ -100,13 +100,18 @@ class PRIVMSG(USERSTATE):
 
 
 @dataclass
-class USERNOTICE(PRIVMSG):  # there are a ton of params
-    login: str = None
+class USERNOTICEBASE(PRIVMSG):  # this is the baseclass for USERNOTICE. used by the subclasses
+    system_msg: str = None
     msg_id: str = None
+    login: str = None
+
+
+@dataclass
+class USERNOTICE(USERNOTICEBASE):  # there are a ton of params
     msg_param_cumulative_months: int = 0
-    msg_param_displayName: str = None  # sent only on raid
-    msg_param_viewerCount: int = 0
-    msg_param_login: str = None
+    msg_param_displayName: str = None  # display name of raider
+    msg_param_viewerCount: int = 0  # number of viewers raiding
+    msg_param_login: str = None  # login name of raider
     msg_param_months: int = 0
     msg_param_promo_gift_total: str = None
     msg_param_promo_name: str = None
@@ -114,6 +119,7 @@ class USERNOTICE(PRIVMSG):  # there are a ton of params
     msg_param_recipient_id: str = None
     msg_param_recipient_user_name: str = None
     msg_param_sender_login: str = None
+    msg_param_sender_name: str = None
     msg_param_multimonth_tenure: int = 0  # not sure what this is. it's not in the spec, but found it in sub messages. always 0?
     msg_param_should_share_streak: int = 0
     msg_param_streak_months: int = 0
@@ -122,31 +128,28 @@ class USERNOTICE(PRIVMSG):  # there are a ton of params
     msg_param_was_gifted: bool = False
     msg_param_ritual_name: str = None  # lol what? this is in the spec
     msg_param_threshold: int = 0
-    system_msg: str = None
+    msg_param_gift_months: int = 0
 
 
 # Here we implement some custom ones for the bot dev to use
 # USERNOTICE subclasses
 @dataclass
-class RAID:
+class RAID(USERNOTICEBASE):
     raider: str = None
     viewers: int = 0
 
 
 @dataclass
-class RITUAL:  # yes this is a thing lol
+class RITUAL(USERNOTICEBASE):  # yes this is a thing lol
     name: str = None
 
 
 @dataclass
-class SUBSCRIPTION:  # This should be complete
+class SUBSCRIPTION(USERNOTICEBASE):  # This should be complete
     promo_total: int = 0
     promo_name: str = None
     cumulative: int = 0
     months: int = 0
-    anon: bool = False
-    gift: bool = False
-    resub: bool = False
     recipient: str = None
     recipient_id: str = None
     sender: str = None
@@ -162,7 +165,7 @@ class ReconnectReceived(Exception):
 
 
 # you can write your own configuration if you want to, not here though. do it in your own class
-def configure_logger(_level=logging.INFO):
+def configure_logger(_level=logging.INFO) -> None:
     log.setLevel(_level)
     handler = logging.StreamHandler(sys.stdout)
     handler.setLevel(_level)
@@ -172,11 +175,13 @@ def configure_logger(_level=logging.INFO):
 _listeners = {}
 
 
-def add_listener(func, name='any'):
+def add_listener(func, name='any') -> None:
     match name:
         case 'all' | '*':
             name = 'any'
-        case 'subscribe' | 'resub' | 'resubscribe' | 'subscription':
+        case 'resubscribe' | 'resubscription':
+            name = 'resub'
+        case 'subscribe' | 'subscription':
             name = 'sub'
         case 'msg':
             name = 'message'
@@ -188,14 +193,14 @@ def add_listener(func, name='any'):
 
 
 class Session(object):
-    def __init__(self):
+    def __init__(self) -> None:
         self.host = 'irc.twitch.tv'
         self.port = 6667
         self.sock = socket.socket()
         self.cooldowns = {}
         self.channels = []
 
-    def start(self, token, nick, channels=None):
+    def start(self, token, nick, channels=None) -> None:
         self.token = token
         self.nick = nick
 
@@ -205,7 +210,7 @@ class Session(object):
                 self.join(channels)
             self.loop()
 
-    def loop(self):
+    def loop(self) -> None:
         while True:
             try:
                 self.receive()
@@ -219,10 +224,10 @@ class Session(object):
             except Exception as e:
                 log.exception(e)
 
-    def socksend(self, sock_msg):  # removes the need to do the converting and stuff
+    def socksend(self, sock_msg) -> None:  # removes the need to do the converting and stuff
         self.sock.send(f"{sock_msg}\r\n".encode("utf-8"))
 
-    def connect(self):
+    def connect(self) -> None:
         log.debug(f'Attemptng to connect to {self.host}:{self.port}')
         try:
             self.sock.connect((self.host, self.port))  # only called once, not worth writing seperate wrapper
@@ -236,7 +241,7 @@ class Session(object):
         else:
             log.debug('Connected')
 
-    def join(self, channels):
+    def join(self, channels) -> None:
         channels = channels if type(list) else list(channels)
         self.channels.append(channels)
         for x in channels:
@@ -245,7 +250,7 @@ class Session(object):
             log.debug(f'Joined {c}')
             self.call_listeners('join_self', channel=c)
 
-    def part(self, channels):  # this is currently untested
+    def part(self, channels) -> None:  # this is currently untested
         channels = channels if type(list) else list(channels)
         self.channels.remove(channels)
         for x in channels:
@@ -254,14 +259,14 @@ class Session(object):
             log.debug(f'Left {c}')
             self.call_listeners('part_self', channel=c)
 
-    def pong(self):
+    def pong(self) -> None:
         self.socksend("PONG :tmi.twitch.tv")
 
-    def ping(self, line):
+    def ping(self, line) -> None:
         if line == "PING :tmi.twitch.tv":
             self.pong()
 
-    def cast(self, dclass, data):
+    def cast(self, dclass, data) -> dict:
         items = {}
         if not hasattr(dclass, '__annotations__'):
             return {}  # return if not dataclass
@@ -276,11 +281,11 @@ class Session(object):
 
         return items
 
-    def log_to_console(self, ctx):
+    def log_to_console(self, ctx) -> None:
         if hasattr(ctx, 'message'):
-            log.debug(f'{type(ctx).__name__} {ctx.message.channel} >>> {ctx.display_name}: {ctx.message.content}')
+            log.debug(f'{type(ctx).__name__} {ctx.message.channel} >>> {ctx.message.author}: {ctx.message.content}')
 
-    def parse_base(self, dprs: dict):  # this needs to be done with dictionaries unfortunately
+    def parse_base(self, dprs: dict) -> dict:  # this needs to be done with dictionaries unfortunately
         badge_tuple = ('badge_info', 'badges')
         for badge_type in badge_tuple:
             if badge_type in dprs:
@@ -292,12 +297,12 @@ class Session(object):
 
         return dprs
 
-    def create_prs(self, dclass, line):
+    def create_prs(self, dclass, line):  # unsure what to use for type hints here
         dprs = self.cast(dclass, line)
         dprs = self.parse_base(dprs)
         return dclass(**dprs)
 
-    def parse_privmsg(self, prs, line):  # user regex provided by RingoMär <3
+    def parse_privmsg(self, prs: Messageable, line: str) -> None:  # user regex provided by RingoMär <3
         try:
             user = re.search(r":([a-zA-Z0-9-_\w]+)!([a-zA-Z0-9-_\w]+)@([a-zA-Z0-9-_\w]+)", line).group(1)
         except AttributeError:
@@ -309,28 +314,81 @@ class Session(object):
 
         prs.message = Message(user, channel, msg)
 
-        def _send_proxy(message):  # construct send function that can be called from ctx
+        def _send_proxy(message: str) -> None:  # construct send function that can be called from ctx
             self.send(message, channel)
         prs.send = _send_proxy
 
-    def parse_action(self, prs):
+    def parse_action(self, prs) -> None:
         SOH = chr(1)  # ASCII SOH (Start of Header) Control Character
         if hasattr(prs, 'message') and 'ACTION' in prs.message.content and SOH in prs.message.content:
             prs.message.content = prs.message.content[len(SOH + 'ACTION '):-len(SOH)]
             prs.action = True
 
-    def format_display_name(self, prs):
+    def swap_message_order(self, prs: Messageable) -> None:  # sometimes the author and content order is incorrect. we can call this to swap them around
+        author = prs.message.content
+        content = prs.message.author
+
+        prs.message.content = content if content != 'Anon' else None
+        prs.message.author = author
+
+    def format_display_name(self, prs) -> None:
         if hasattr(prs, 'login') and prs.login:
             prs.message.author = prs.login
         if not prs.display_name:
             prs.display_name = prs.message.author
+        else:
+            prs.message.author = prs.display_name
 
-    def parse(self, line):  # use an elif chain or match case (maybeeee down the line)
+    def parse_ritual(self, oprs: USERNOTICE, line: str) -> None:
+        prs = self.create_prs(RITUAL, line)
+        self.parse_privmsg(prs, line)
+        self.format_display_name(prs)
+
+        prs.name = oprs.msg_param_ritual_name
+        self.call_listeners('ritual', ctx=prs)
+        # if not oprs.msg_param_ritual_name: return  # return if no ritual
+        # return RITUAL(name=oprs.msg_param_ritual_name)
+
+    def parse_subscription(self, oprs: USERNOTICE, line: str) -> None:
+        prs = self.create_prs(SUBSCRIPTION, line)
+        self.parse_privmsg(prs, line)
+        self.format_display_name(prs)
+
+        # this will be revisited to dataclass some of these things together
+        prs.promo_total = oprs.msg_param_promo_gift_total
+        prs.promo_name = oprs.msg_param_promo_name
+        prs.cumulative = oprs.msg_param_cumulative_months
+        prs.months = oprs.msg_param_months
+        prs.recipient = oprs.msg_param_recipient_display_name if oprs.msg_param_recipient_display_name else oprs.msg_param_recipient_user_name
+        prs.recipient_id = oprs.msg_param_recipient_id
+        prs.sender = oprs.msg_param_sender_name if oprs.msg_param_sender_name else oprs.msg_param_sender_login
+        prs.share_streak = oprs.msg_param_should_share_streak
+        prs.streak = oprs.msg_param_streak_months
+        prs.plan = oprs.msg_param_sub_plan
+        prs.plan_name = oprs.msg_param_sub_plan_name
+        prs.gifted_months = oprs.msg_param_gift_months
+
+        self.call_listeners(oprs.msg_id, ctx=prs)
+        self.call_listeners('anysub', ctx=prs)
+
+    def parse_raid(self, oprs: USERNOTICE, line: str) -> None:
+        prs = self.create_prs(RAID, line)
+        self.parse_privmsg(prs, line)
+        self.format_display_name(prs)
+
+        prs.raider = oprs.msg_param_displayName if oprs.msg_param_displayName else oprs.msg_param_login
+        prs.viewers = oprs.msg_param_viewerCount
+
+        self.call_listeners('raid', ctx=prs)
+
+    def parse(self, line) -> None:  # use an elif chain or match case (maybeeee down the line)
         if 'PRIVMSG' in line and line[0] == '@':
             prs = self.create_prs(PRIVMSG, line)
             self.parse_privmsg(prs, line)
             self.format_display_name(prs)
             self.parse_action(prs)
+
+            # log.debug(f'{prs.display_name} and {prs.message.author}')
 
             self.call_listeners('message', ctx=prs)
 
@@ -341,7 +399,20 @@ class Session(object):
 
             self.call_listeners('usernotice', ctx=prs)
 
-            # we also call listeners for subs, raids, and rituals (TODO)
+            # these are the valid msg_id's
+            # sub, resub, subgift, anonsubgift, submysterygift, giftpaidupgrade, rewardgift, anongiftpaidupgrade, raid, unraid, ritual, bitsbadgetier
+
+            match prs.msg_id:
+                case 'sub' | 'resub' | 'subgift' | 'anonsubgift' | 'submysterygift' | 'giftpaidupgrade' | 'rewardgift' | 'anongiftpaidupgrade':
+                    self.parse_subscription(prs, line)
+                case 'unraid':
+                    self.call_listeners('unraid', ctx=prs)
+                case 'raid':
+                    self.parse_raid(prs, line)
+                case 'bitsbadgetier':  # I need to do more research on this one
+                    log.debug(prs)
+                case 'ritual':
+                    self.parse_ritual(prs, line)
 
         elif 'RECONNECT' in line:  # user influence shouldn't be possible
             raise ReconnectReceived('Server sent RECONNECT.')
@@ -366,6 +437,7 @@ class Session(object):
         elif 'CLEARCHAT' in line and line[0] == '@':
             prs = self.create_prs(CLEARCHAT, line)
             self.parse_privmsg(prs, line)
+            self.swap_message_order(prs)
 
             log.debug(prs)
 
@@ -374,23 +446,23 @@ class Session(object):
         elif 'CLEARMSG' in line and line[0] == '@':
             log.debug(line)
 
-    def receive(self):  # I've compressed the shit outta this code
+    def receive(self) -> None:  # I've compressed the shit outta this code
         for line in self.sock.recv(16384).decode('utf-8', 'replace').split("\r\n")[:-1]:
             # log.debug(line)
             self.ping(line)
             self.parse(line)
 
-    def call_listeners(self, event, **kwargs):
+    def call_listeners(self, event, **kwargs) -> None:
         if event != 'any':
-            # if ctx := kwargs.get('ctx', None):  # walrus zaqV
-            #     self.log_to_console(ctx)
+            if ctx := kwargs.get('ctx', None):  # walrus zaqV
+                self.log_to_console(ctx)
             self.call_listeners('any', **kwargs)
         if event not in _listeners:
             return
         for func in _listeners[event]:
             func(self, **kwargs)
 
-    def func_on_cooldown(self, func, time):
+    def func_on_cooldown(self, func, time) -> bool:
         time_now = datetime.datetime.utcnow()
         if func in self.cooldowns:
             if (time_now - self.cooldowns[func]).seconds >= time:
@@ -401,23 +473,23 @@ class Session(object):
             return False
         return True
 
-    def send(self, message, channel):
+    def send(self, message: str, channel: str) -> None:
         self.socksend(f'PRIVMSG {channel} :{message}')  # placement of the : is important :zaqPbt:
 
-    def maximize_msg(self, content, offset=0):
+    def maximize_msg(self, content: str, offset: int = 0):
         return content * math.trunc((500 - offset) / len(content))  # need to trunc cuz we always round down
 
 
-def event(event=None):  # listener/decorator for on_message
-    def wrapper(func):
+def event(event=None) -> typing.Callable:  # listener/decorator for on_message
+    def wrapper(func: typing.Callable) -> typing.Callable:
         add_listener(func, event)
         return func
     return wrapper
 
 
-def cooldown(time):
-    def decorator(func):
-        def wrapper(self, ctx):
+def cooldown(time) -> typing.Callable:
+    def decorator(func: typing.Callable) -> typing.Callable:
+        def wrapper(self, ctx) -> typing.Callable:
             if self.func_on_cooldown(func, time):
                 return False
             return func(self, ctx)
@@ -425,9 +497,9 @@ def cooldown(time):
     return decorator
 
 
-def author(name):  # check author
-    def decorator(func):  # TODO: Add list support
-        def wrapper(self, ctx):
+def author(name) -> typing.Callable:  # check author
+    def decorator(func: typing.Callable) -> typing.Callable:  # TODO: Add list support
+        def wrapper(self, ctx) -> typing.Callable:
             if ctx.message.author == name.lower():
                 return func(self, ctx)
             return False
@@ -438,10 +510,10 @@ def author(name):  # check author
 authors = author
 
 
-def channel(name):  # check channel
-    def decorator(func):
-        def wrapper(self, ctx):
-            def adapt(_name):
+def channel(name) -> typing.Callable:  # check channel
+    def decorator(func: typing.Callable) -> typing.Callable:
+        def wrapper(self, ctx) -> typing.Callable:
+            def adapt(_name) -> str:
                 return _name if _name[0] == '#' else f'#{_name}'
             if ctx.message.channel == adapt(name):
                 return func(self, ctx)
@@ -450,10 +522,10 @@ def channel(name):  # check channel
     return decorator
 
 
-def message(content, mode='eq'):  # check message
-    def decorator(func):
-        def wrapper(self, ctx):
-            def advance():
+def message(content, mode='eq') -> typing.Callable:  # check message
+    def decorator(func: typing.Callable) -> typing.Callable:
+        def wrapper(self, ctx) -> typing.Callable:
+            def advance() -> bool:
                 match mode:
                     case 'eq' | 'equals':
                         if ctx.message.content == content:

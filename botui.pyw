@@ -254,7 +254,7 @@ class Elenabot:
 
             @event('message')  # https://stackoverflow.com/a/34769569/14125122
             def on_message_sent(cls, ctx):
-                to_insert = f'{ctx.display_name}: {ctx.message.content}\n'
+                to_insert = f'{ctx.message.author}: {ctx.message.content}\n'
                 self.update_messages_widget(to_insert, ctx.message.channel)
                 # log.debug(f'{ctx.message.channel}: Line Count: {line_count}; Scrollbar Line: {scroll_line}; Difference: {diff}')
 
