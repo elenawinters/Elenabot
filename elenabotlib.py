@@ -12,11 +12,11 @@
 """
 
 from dataclasses import dataclass, field
+from typing import Callable, Union
 import traceback
 import datetime
 import logging
 import socket
-import typing
 import math
 import sys
 import re
@@ -242,7 +242,7 @@ class Session(object):
         else:
             log.debug('Connected')
 
-    def join(self, channels) -> None:
+    def join(self, channels: Union[list, str]) -> None:
         channels = channels if type(list) else list(channels)
         self.channels.append(channels)
         for x in channels:
@@ -251,7 +251,7 @@ class Session(object):
             log.debug(f'Joined {c}')
             self.call_listeners('join_self', channel=c)
 
-    def part(self, channels) -> None:  # this is currently untested
+    def part(self, channels: Union[list, str]) -> None:  # this is currently untested
         channels = channels if type(list) else list(channels)
         self.channels.remove(channels)
         for x in channels:
@@ -263,7 +263,7 @@ class Session(object):
     def pong(self) -> None:
         self.socksend("PONG :tmi.twitch.tv")
 
-    def ping(self, line) -> None:
+    def ping(self, line: str) -> None:
         if line == "PING :tmi.twitch.tv":
             self.pong()
 
@@ -282,8 +282,8 @@ class Session(object):
 
         return items
 
-    def log_to_console(self, ctx) -> None:
-        if hasattr(ctx, 'message'):
+    def log_to_console(self, ctx: Messageable) -> None:
+        if hasattr(ctx, 'message') and hasattr(ctx.message, 'content') and ctx.message.content:
             log.debug(f'{type(ctx).__name__} {ctx.message.channel} >>> {ctx.message.author}: {ctx.message.content}')
 
     def parse_base(self, dprs: dict) -> dict:  # this needs to be done with dictionaries unfortunately
@@ -298,7 +298,7 @@ class Session(object):
 
         return dprs
 
-    def create_prs(self, dclass, line):  # unsure what to use for type hints here
+    def create_prs(self, dclass, line: str):  # unsure what to use for type hints here
         dprs = self.cast(dclass, line)
         dprs = self.parse_base(dprs)
         return dclass(**dprs)
@@ -316,11 +316,11 @@ class Session(object):
 
         prs.message = Message(user, channel, msg)
 
-        def _send_proxy(message: str) -> None:  # construct send function that can be called from ctx
+        def _send_proxy(message: str):  # construct send function that can be called from ctx
             self.send(message, channel)
         prs.send = _send_proxy
 
-    def parse_action(self, prs) -> None:
+    def parse_action(self, prs: Messageable) -> None:
         SOH = chr(1)  # ASCII SOH (Start of Header) Control Character
         if hasattr(prs, 'message') and 'ACTION' in prs.message.content and SOH in prs.message.content:
             prs.message.content = prs.message.content[len(SOH + 'ACTION '):-len(SOH)]
@@ -348,8 +348,6 @@ class Session(object):
 
         prs.name = oprs.msg_param_ritual_name
         self.call_listeners('ritual', ctx=prs)
-        # if not oprs.msg_param_ritual_name: return  # return if no ritual
-        # return RITUAL(name=oprs.msg_param_ritual_name)
 
     def parse_subscription(self, oprs: USERNOTICE, line: str) -> None:
         prs = self.create_prs(SUBSCRIPTION, line)
@@ -383,7 +381,7 @@ class Session(object):
 
         self.call_listeners('raid', ctx=prs)
 
-    def parse(self, line) -> None:  # use an elif chain or match case (maybeeee down the line)
+    def parse(self, line: str) -> None:  # use an elif chain or match case (maybeeee down the line)
         if 'PRIVMSG' in line and line[0] == '@':
             prs = self.create_prs(PRIVMSG, line)
             self.parse_privmsg(prs, line)
@@ -398,6 +396,8 @@ class Session(object):
             prs = self.create_prs(USERNOTICE, line)
             self.parse_privmsg(prs, line)
             self.format_display_name(prs)
+
+            log.debug(prs)
 
             self.call_listeners('usernotice', ctx=prs)
 
@@ -424,15 +424,11 @@ class Session(object):
             self.parse_privmsg(prs, line)
             self.format_display_name(prs)
 
-            log.debug(prs)
-
             self.call_listeners('userstate', ctx=prs)
 
         elif 'NOTICE' in line and line[0] == '@':
             prs = self.create_prs(NOTICE, line)
             self.parse_privmsg(prs, line)
-
-            log.debug(prs)
 
             self.call_listeners('notice', ctx=prs)
 
@@ -440,8 +436,6 @@ class Session(object):
             prs = self.create_prs(CLEARCHAT, line)
             self.parse_privmsg(prs, line)
             self.swap_message_order(prs)
-
-            log.debug(prs)
 
             self.call_listeners('clearchat', ctx=prs)
 
@@ -454,7 +448,7 @@ class Session(object):
             self.ping(line)
             self.parse(line)
 
-    def call_listeners(self, event, **kwargs) -> None:
+    def call_listeners(self, event: str, **kwargs) -> None:
         if event != 'any':
             if ctx := kwargs.get('ctx', None):  # walrus zaqV
                 self.log_to_console(ctx)
@@ -464,7 +458,7 @@ class Session(object):
         for func in _listeners[event]:
             func(self, **kwargs)
 
-    def func_on_cooldown(self, func, time) -> bool:
+    def func_on_cooldown(self, func: Callable, time: int) -> bool:
         time_now = datetime.datetime.utcnow()
         if func in self.cooldowns:
             if (time_now - self.cooldowns[func]).seconds >= time:
@@ -478,20 +472,20 @@ class Session(object):
     def send(self, message: str, channel: str) -> None:
         self.socksend(f'PRIVMSG {channel} :{message}')  # placement of the : is important :zaqPbt:
 
-    def maximize_msg(self, content: str, offset: int = 0):
+    def maximize_msg(self, content: str, offset: int = 0) -> str:
         return content * math.trunc((500 - offset) / len(content))  # need to trunc cuz we always round down
 
 
-def event(event=None) -> typing.Callable:  # listener/decorator for on_message
-    def wrapper(func: typing.Callable) -> typing.Callable:
+def event(event: str = None) -> Callable:  # listener/decorator for on_message
+    def wrapper(func: Callable) -> Callable:
         add_listener(func, event)
         return func
     return wrapper
 
 
-def cooldown(time) -> typing.Callable:
-    def decorator(func: typing.Callable) -> typing.Callable:
-        def wrapper(self, ctx) -> typing.Callable:
+def cooldown(time) -> Callable:
+    def decorator(func: Callable) -> Callable:
+        def wrapper(self: Session, ctx) -> Callable:
             if self.func_on_cooldown(func, time):
                 return False
             return func(self, ctx)
@@ -499,10 +493,10 @@ def cooldown(time) -> typing.Callable:
     return decorator
 
 
-def author(name) -> typing.Callable:  # check author
-    def decorator(func: typing.Callable) -> typing.Callable:  # TODO: Add list support
-        def wrapper(self, ctx) -> typing.Callable:
-            if ctx.message.author == name.lower():
+def author(name: str) -> Callable:  # check author
+    def decorator(func: Callable) -> Callable:  # TODO: Add list support
+        def wrapper(self: Session, ctx: Messageable) -> Callable:
+            if ctx.message.author.lower() == name.lower():
                 return func(self, ctx)
             return False
         return wrapper
@@ -512,9 +506,9 @@ def author(name) -> typing.Callable:  # check author
 authors = author
 
 
-def channel(name) -> typing.Callable:  # check channel
-    def decorator(func: typing.Callable) -> typing.Callable:
-        def wrapper(self, ctx) -> typing.Callable:
+def channel(name: str) -> Callable:  # check channel
+    def decorator(func: Callable) -> Callable:
+        def wrapper(self: Session, ctx: Messageable) -> Callable:
             def adapt(_name) -> str:
                 return _name if _name[0] == '#' else f'#{_name}'
             if ctx.message.channel == adapt(name):
@@ -524,9 +518,9 @@ def channel(name) -> typing.Callable:  # check channel
     return decorator
 
 
-def message(content, mode='eq') -> typing.Callable:  # check message
-    def decorator(func: typing.Callable) -> typing.Callable:
-        def wrapper(self, ctx) -> typing.Callable:
+def message(content: str, mode='eq') -> Callable:  # check message
+    def decorator(func: Callable) -> Callable:
+        def wrapper(self: Session, ctx: Messageable) -> Callable:
             def advance() -> bool:
                 match mode:
                     case 'eq' | 'equals':
