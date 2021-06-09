@@ -12,7 +12,7 @@
 """
 
 from dataclasses import dataclass, field
-from typing import Callable, Union
+from typing import Any, Callable, Union
 import traceback
 import datetime
 import inspect
@@ -302,6 +302,14 @@ class Session(object):
         if hasattr(ctx, 'message') and hasattr(ctx.message, 'content') and ctx.message.content:
             log.info(f'{type(ctx).__name__} {ctx.message.channel} >>> {ctx.message.author}: {ctx.message.content}')
 
+    def attempt(self, func, *args, **kwargs) -> Any:
+        output = kwargs.get('output', True)
+        try:
+            return func(*args, **kwargs)
+        except Exception as exc:
+            if not output: return
+            log.exception(exc)
+
     def parse_base(self, dprs: dict) -> dict:  # this needs to be done with dictionaries unfortunately
         badge_tuple = ('badge_info', 'badges')
         for badge_type in badge_tuple:
@@ -318,11 +326,10 @@ class Session(object):
         for field in prs.__dataclass_fields__.values():
             entry = getattr(prs, field.name)
             if not isinstance(entry, type(None)) and type(field.type) == type and not isinstance(entry, field.type):
+                if field.type == bool:
+                    entry = self.attempt(int, entry)
                 # log.debug(f'{type(entry)}: {field.type}: {type(field.type)}: {type}')
-                try:
-                    setattr(prs, field.name, field.type(entry))
-                except Exception as exc:
-                    log.exception(exc)
+                self.attempt(setattr, prs, field.name, field.type(entry))
 
     def create_prs(self, dclass, line: str):  # 'prs' is short for 'parsed'
         dprs = self.cast(dclass, line)
@@ -449,8 +456,10 @@ class Session(object):
 
         elif 'ROOMSTATE' in line and line[0] == '@':
             prs = self.create_prs(ROOMSTATE, line)
-            print(prs)
             self.call_listeners('roomstate', ctx=prs)
+
+            print(line)
+            print(prs)
 
         elif 'USERSTATE' in line and line[0] == '@':
             prs = self.create_prs(USERSTATE, line)
@@ -572,7 +581,7 @@ def channel(name: str) -> Callable:  # check channel
     return decorator
 
 
-def message(content: str, mode='eq') -> Callable:  # check message
+def message(content: str, mode: str = 'eq', ignore_self: bool = True) -> Callable:  # check message
     def decorator(func: Callable) -> Callable:
         def wrapper(self: Session, ctx: Messageable) -> Callable:
             def advance() -> bool:
@@ -588,6 +597,8 @@ def message(content: str, mode='eq') -> Callable:  # check message
                         if content in ctx.message.content:
                             return True
             if advance():
+                if not ignore_self and ctx.message.author.lower() == self.nick:
+                    return False
                 return func(self, ctx)
             return False
         return wrapper
