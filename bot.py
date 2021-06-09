@@ -23,17 +23,21 @@ class Elenabot(Session):
         channels = ast.literal_eval(config['twitch']['channels'])
         self.start(config['twitch']['oauth'], config['twitch']['nickname'], channels)
 
+    # @event('roomstate')
+    # def test_roomstate_stuff(self, ctx: ROOMSTATE):
+    #     print(ctx)
+
     @event('anysub')
     def test_sub_stuff(self, ctx):
         log.debug(ctx)
 
-    @event('ritual')
-    def test_ritual_stuff(self, ctx):
-        log.debug(ctx)
+    # @event('ritual')
+    # def test_ritual_stuff(self, ctx):
+    #     log.debug(ctx)
 
-    @event('raid')
-    def test_raid_stuff(self, ctx):
-        log.debug(ctx)
+    # @event('raid')
+    # def test_raid_stuff(self, ctx):
+    #     log.debug(ctx)
 
     # @event('userstate')
     # @channel('elenaberry')

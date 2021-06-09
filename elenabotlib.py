@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from typing import Callable, Union
 import traceback
 import datetime
+import inspect
 import logging
 import socket
 import math
@@ -22,7 +23,6 @@ import sys
 import re
 
 log = logging.getLogger(__name__)
-debug = False  # global debug flag. set this to true to show tons of info. seperate from log.debug
 
 
 @dataclass
@@ -50,7 +50,7 @@ class CLEARCHAT(Messageable):  # the minimum data that would be provided would j
     ban_duration: int = None
 
 
-@dataclass  # NO CLEAR EXAMPLES AT THE MOMENT
+@dataclass
 class CLEARMSG(Messageable):
     target_msg_id: str = None
     login: str = None
@@ -164,12 +164,23 @@ class ReconnectReceived(Exception):
     pass
 
 
+class DebugFilter(logging.Filter):
+    def filter(self, record):
+        if record.levelno > 10:
+            return False
+        return True
+
+
 # you can write your own configuration if you want to, not here though. do it in your own class
 def configure_logger(_level=logging.INFO) -> None:
     log.setLevel(_level)
     handler = logging.StreamHandler(sys.stdout)
     handler.setLevel(_level)
     log.addHandler(handler)
+    d_log = logging.FileHandler('debug.log')
+    d_log.addFilter(DebugFilter())
+    d_log.setLevel(_level)
+    log.addHandler(d_log)
 
 
 _dataclasses = Union[Messageable, CLEARCHAT, ROOMSTATE, NOTICE, GLOBALUSERSTATE, USERSTATE,
@@ -301,10 +312,21 @@ class Session(object):
 
         return dprs
 
+    def prs_conv(self, prs: GLOBALUSERSTATE):  # i hate this already but what you gonna do
+        for field in prs.__dataclass_fields__.values():
+            entry = getattr(prs, field.name)
+            if not isinstance(entry, type(None)) and type(field.type).__name__ == type.__name__ and not isinstance(entry, field.type):
+                try:
+                    setattr(prs, field.name, field.type(entry))
+                except Exception as exc:
+                    log.exception(exc)
+
     def create_prs(self, dclass, line: str):  # 'prs' is short for 'parsed'
         dprs = self.cast(dclass, line)
         dprs = self.parse_base(dprs)
-        return dclass(**dprs)
+        prs = dclass(**dprs)
+        self.prs_conv(prs)
+        return prs
 
     def parse_privmsg(self, prs: Messageable, line: str, oprs: Messageable = None) -> None:  # user regex provided by RingoMär <3
         class_name = type(oprs).__name__ if oprs else type(prs).__name__  # basically only for the usernotice subcalls
@@ -408,19 +430,24 @@ class Session(object):
             # sub, resub, subgift, anonsubgift, submysterygift, giftpaidupgrade, rewardgift, anongiftpaidupgrade, raid, unraid, ritual, bitsbadgetier
 
             match prs.msg_id:
-                case 'sub' | 'resub' | 'subgift' | 'anonsubgift' | 'submysterygift' | 'giftpaidupgrade' | 'rewardgift' | 'anongiftpaidupgrade':
+                case 'sub' | 'resub' | 'subgift' | 'anonsubgift' | 'giftpaidupgrade' | 'anongiftpaidupgrade':
                     self.parse_subscription(prs, line)
                 case 'unraid':
                     self.call_listeners('unraid', ctx=prs)
                 case 'raid':
                     self.parse_raid(prs, line)
-                case 'bitsbadgetier':  # I need to do more research on this one
-                    log.debug(prs)
+                case 'bitsbadgetier' | 'rewardgift' | 'submysterygift':  # I need to do more research on these
+                    log.debug(prs)  # this will be a usernotice. it will save to file
                 case 'ritual':
                     self.parse_ritual(prs, line)
 
         elif 'RECONNECT' in line:  # user influence shouldn't be possible
             raise ReconnectReceived('Server sent RECONNECT.')
+
+        elif 'ROOMSTATE' in line and line[0] == '@':
+            prs = self.create_prs(ROOMSTATE, line)
+            print(prs)
+            self.call_listeners('roomstate', ctx=prs)
 
         elif 'USERSTATE' in line and line[0] == '@':
             prs = self.create_prs(USERSTATE, line)
@@ -459,7 +486,7 @@ class Session(object):
             self.parse(line)
 
     def call_listeners(self, event: str, **kwargs) -> None:
-        if event != 'any':
+        if 'any' not in event:  # remove the explicit check cuz i want anysub to be ignored as well
             if ctx := kwargs.get('ctx', None):  # walrus zaqV
                 self.log_to_console(ctx)
             self.call_listeners('any', **kwargs)
