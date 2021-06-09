@@ -315,11 +315,9 @@ class Session(object):
     def prs_conv(self, prs: GLOBALUSERSTATE):  # i hate this already but what you gonna do
         for field in prs.__dataclass_fields__.values():
             entry = getattr(prs, field.name)
-            if not isinstance(entry, type(None)) and type(field.type).__name__ == type.__name__ and not isinstance(entry, field.type):
-                try:
-                    setattr(prs, field.name, field.type(entry))
-                except Exception as exc:
-                    log.exception(exc)
+            if not isinstance(entry, type(None)) and type(field.type) == type and not isinstance(entry, field.type):
+                # log.debug(f'{type(entry)}: {field.type}: {type(field.type)}: {type}')
+                setattr(prs, field.name, field.type(entry))
 
     def create_prs(self, dclass, line: str):  # 'prs' is short for 'parsed'
         dprs = self.cast(dclass, line)
