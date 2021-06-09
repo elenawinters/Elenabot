@@ -22,6 +22,7 @@ import sys
 import re
 
 log = logging.getLogger(__name__)
+debug = False  # global debug flag. set this to true to show tons of info. seperate from log.debug
 
 
 @dataclass
@@ -49,12 +50,10 @@ class CLEARCHAT(Messageable):  # the minimum data that would be provided would j
     ban_duration: int = None
 
 
-# @dataclass  # NO CLEAR EXAMPLES AT THE MOMENT
-# class CLEARMSG:
-#     login: str = None
-#     message: str = None
-#     channel: str = None
-#     target_msg_id: str = None
+@dataclass  # NO CLEAR EXAMPLES AT THE MOMENT
+class CLEARMSG(Messageable):
+    target_msg_id: str = None
+    login: str = None
 
 
 @dataclass
@@ -135,17 +134,6 @@ class USERNOTICE(USERNOTICEBASE):  # there are a ton of params
 # Here we implement some custom ones for the bot dev to use
 # USERNOTICE subclasses
 @dataclass
-class RAID(USERNOTICEBASE):
-    raider: str = None
-    viewers: int = 0
-
-
-@dataclass
-class RITUAL(USERNOTICEBASE):  # yes this is a thing lol
-    name: str = None
-
-
-@dataclass
 class SUBSCRIPTION(USERNOTICEBASE):  # This should be complete
     promo_total: int = 0
     promo_name: str = None
@@ -161,6 +149,17 @@ class SUBSCRIPTION(USERNOTICEBASE):  # This should be complete
     gifted_months: int = 0
 
 
+@dataclass
+class RITUAL(USERNOTICEBASE):  # yes this is a thing lol
+    name: str = None
+
+
+@dataclass
+class RAID(USERNOTICEBASE):
+    raider: str = None
+    viewers: int = 0
+
+
 class ReconnectReceived(Exception):
     pass
 
@@ -173,6 +172,8 @@ def configure_logger(_level=logging.INFO) -> None:
     log.addHandler(handler)
 
 
+_dataclasses = Union[Messageable, CLEARCHAT, ROOMSTATE, NOTICE, GLOBALUSERSTATE, USERSTATE,
+                     PRIVMSG, USERNOTICEBASE, USERNOTICE, SUBSCRIPTION, RITUAL, RAID]
 _listeners = {}
 
 
@@ -191,6 +192,8 @@ def add_listener(func, name='any') -> None:
         _listeners[name] = [func]
     else:
         _listeners[name].append(func)
+
+    log.debug(f'Added {func.__name__} to {name} handler.')
 
 
 class Session(object):
@@ -229,7 +232,7 @@ class Session(object):
         self.sock.send(f"{sock_msg}\r\n".encode("utf-8"))
 
     def connect(self) -> None:
-        log.debug(f'Attemptng to connect to {self.host}:{self.port}')
+        log.info(f'Attemptng to connect to {self.host}:{self.port}')
         try:
             self.sock.connect((self.host, self.port))  # only called once, not worth writing seperate wrapper
             self.socksend(f"PASS {self.token}")
@@ -240,7 +243,7 @@ class Session(object):
         except Exception as exc:
             log.exception(f'Error occured while connecting to IRC: ', exc_info=exc)
         else:
-            log.debug('Connected')
+            log.info('Connected')
 
     def join(self, channels: Union[list, str]) -> None:
         channels = channels if type(list) else list(channels)
@@ -248,7 +251,7 @@ class Session(object):
         for x in channels:
             c = x.lower() if x[0] == '#' else f'#{x.lower()}'
             self.socksend(f"JOIN {c}")
-            log.debug(f'Joined {c}')
+            log.info(f'Joined {c}')
             self.call_listeners('join_self', channel=c)
 
     def part(self, channels: Union[list, str]) -> None:  # this is currently untested
@@ -257,7 +260,7 @@ class Session(object):
         for x in channels:
             c = x.lower() if x[0] == '#' else f'#{x.lower()}'
             self.socksend(f"PART {c}")
-            log.debug(f'Left {c}')
+            log.info(f'Left {c}')
             self.call_listeners('part_self', channel=c)
 
     def pong(self) -> None:
@@ -284,7 +287,7 @@ class Session(object):
 
     def log_to_console(self, ctx: Messageable) -> None:
         if hasattr(ctx, 'message') and hasattr(ctx.message, 'content') and ctx.message.content:
-            log.debug(f'{type(ctx).__name__} {ctx.message.channel} >>> {ctx.message.author}: {ctx.message.content}')
+            log.info(f'{type(ctx).__name__} {ctx.message.channel} >>> {ctx.message.author}: {ctx.message.content}')
 
     def parse_base(self, dprs: dict) -> dict:  # this needs to be done with dictionaries unfortunately
         badge_tuple = ('badge_info', 'badges')
@@ -298,7 +301,7 @@ class Session(object):
 
         return dprs
 
-    def create_prs(self, dclass, line: str):  # unsure what to use for type hints here
+    def create_prs(self, dclass, line: str):  # 'prs' is short for 'parsed'
         dprs = self.cast(dclass, line)
         dprs = self.parse_base(dprs)
         return dclass(**dprs)
@@ -320,7 +323,7 @@ class Session(object):
             self.send(message, channel)
         prs.send = _send_proxy
 
-    def parse_action(self, prs: Messageable) -> None:
+    def parse_action(self, prs: PRIVMSG) -> None:
         SOH = chr(1)  # ASCII SOH (Start of Header) Control Character
         if hasattr(prs, 'message') and 'ACTION' in prs.message.content and SOH in prs.message.content:
             prs.message.content = prs.message.content[len(SOH + 'ACTION '):-len(SOH)]
@@ -333,9 +336,10 @@ class Session(object):
         prs.message.content = content if content != 'Anon' else None
         prs.message.author = author
 
-    def format_display_name(self, prs) -> None:
+    def format_display_name(self, prs: USERNOTICEBASE) -> None:
         if hasattr(prs, 'login') and prs.login:
             prs.message.author = prs.login
+        if not hasattr(prs, 'display_name'): return
         if not prs.display_name:
             prs.display_name = prs.message.author
         else:
@@ -348,6 +352,7 @@ class Session(object):
 
         prs.name = oprs.msg_param_ritual_name
         self.call_listeners('ritual', ctx=prs)
+        log.debug(prs)  # i haven't actually seen this so i wanna log it
 
     def parse_subscription(self, oprs: USERNOTICE, line: str) -> None:
         prs = self.create_prs(SUBSCRIPTION, line)
@@ -397,8 +402,6 @@ class Session(object):
             self.parse_privmsg(prs, line)
             self.format_display_name(prs)
 
-            log.debug(prs)
-
             self.call_listeners('usernotice', ctx=prs)
 
             # these are the valid msg_id's
@@ -440,7 +443,14 @@ class Session(object):
             self.call_listeners('clearchat', ctx=prs)
 
         elif 'CLEARMSG' in line and line[0] == '@':
-            log.debug(line)
+            prs = self.create_prs(CLEARMSG, line)
+            self.parse_privmsg(prs, line)
+            self.format_display_name(prs)
+
+            self.call_listeners('clearmsg', ctx=prs)
+
+        # else:
+        #     log.debug(f'THE FOLLOWING IS NOT BEING HANDLED:\n{line}')
 
     def receive(self) -> None:  # I've compressed the shit outta this code
         for line in self.sock.recv(16384).decode('utf-8', 'replace').split("\r\n")[:-1]:
@@ -475,6 +485,9 @@ class Session(object):
     def maximize_msg(self, content: str, offset: int = 0) -> str:
         return content * math.trunc((500 - offset) / len(content))  # need to trunc cuz we always round down
 
+    def fill_msg(self, content: str, length: int = 500) -> str:
+        return content * math.trunc((length) / len(content))  # need to trunc cuz we always round down
+
 
 def event(event: str = None) -> Callable:  # listener/decorator for on_message
     def wrapper(func: Callable) -> Callable:
@@ -483,12 +496,23 @@ def event(event: str = None) -> Callable:  # listener/decorator for on_message
     return wrapper
 
 
-def cooldown(time) -> Callable:
+def cooldown(time: int) -> Callable:
     def decorator(func: Callable) -> Callable:
         def wrapper(self: Session, ctx) -> Callable:
             if self.func_on_cooldown(func, time):
+                # log.debug(f'{func.__name__} is on cooldown!')
                 return False
             return func(self, ctx)
+        return wrapper
+    return decorator
+
+
+def ignore_myself() -> Callable:
+    def decorator(func: Callable) -> Callable:  # TODO: Add list support
+        def wrapper(self: Session, ctx: Messageable) -> Callable:
+            if ctx.message.author.lower() != self.nick:
+                return func(self, ctx)
+            return False
         return wrapper
     return decorator
 
