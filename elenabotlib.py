@@ -166,7 +166,9 @@ class ReconnectReceived(Exception):
 
 class DebugFilter(logging.Filter):
     def filter(self, record):
-        if record.levelno > 10:
+        if record.levelno >= 40:
+            return True
+        elif record.levelno > 10:
             return False
         return True
 
@@ -317,7 +319,10 @@ class Session(object):
             entry = getattr(prs, field.name)
             if not isinstance(entry, type(None)) and type(field.type) == type and not isinstance(entry, field.type):
                 # log.debug(f'{type(entry)}: {field.type}: {type(field.type)}: {type}')
-                setattr(prs, field.name, field.type(entry))
+                try:
+                    setattr(prs, field.name, field.type(entry))
+                except Exception as exc:
+                    log.exception(exc)
 
     def create_prs(self, dclass, line: str):  # 'prs' is short for 'parsed'
         dprs = self.cast(dclass, line)
