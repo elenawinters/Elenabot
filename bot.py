@@ -27,17 +27,25 @@ class Elenabot(Session):
     # def test_roomstate_stuff(self, ctx: ROOMSTATE):
     #     print(ctx)
 
-    @event('anysub')
-    def test_sub_stuff(self, ctx):
-        log.debug(ctx)
+    # @event('join_self')
+    # def test_sub_stuff(self, channel):
+    #     log.debug('JOINING CHANNEL')
+
+    # @event('anysub')
+    # def test_sub_stuff(self, ctx):
+    #     log.debug(ctx)
 
     # @event('ritual')
     # def test_ritual_stuff(self, ctx):
     #     log.debug(ctx)
 
-    # @event('raid')
-    # def test_raid_stuff(self, ctx):
-    #     log.debug(ctx)
+    # @event('ritual:new_chatter')
+    # def test_new_chatter_ritual_stuff(self, ctx):
+    #     log.debug(f'NEW CHATTER: {ctx}')
+
+    @event('raid')
+    def test_raid_stuff(self, ctx):
+        log.debug(ctx)
 
     # @event('userstate')
     # @channel('elenaberry')

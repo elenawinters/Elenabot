@@ -58,11 +58,13 @@ class CLEARMSG(Messageable):
 
 @dataclass
 class ROOMSTATE:
+    channel: str = None
     emote_only: bool = False
     followers_only: int = -1
     r9k: bool = False
     slow: int = 0
     subs_only: bool = False
+    send: str = None
 
 
 @dataclass
@@ -241,11 +243,16 @@ class Session(object):
             except Exception as e:
                 log.exception(e)
 
+    def shutdown(self) -> None:
+        self.sock.shutdown(socket.SHUT_RDWR)
+        self.sock.close()
+        sys.exit(0)
+
     def socksend(self, sock_msg) -> None:  # removes the need to do the converting and stuff
         self.sock.send(f"{sock_msg}\r\n".encode("utf-8"))
 
     def connect(self) -> None:
-        log.info(f'Attemptng to connect to {self.host}:{self.port}')
+        log.debug(f'Attemptng to connect to {self.host}:{self.port}')
         try:
             self.sock.connect((self.host, self.port))  # only called once, not worth writing seperate wrapper
             self.socksend(f"PASS {self.token}")
@@ -278,6 +285,7 @@ class Session(object):
 
     def pong(self) -> None:
         self.socksend("PONG :tmi.twitch.tv")
+        log.debug('Server sent PING. We sent PONG.')
 
     def ping(self, line: str) -> None:
         if line == "PING :tmi.twitch.tv":
@@ -311,15 +319,12 @@ class Session(object):
             log.exception(exc)
 
     def parse_base(self, dprs: dict) -> dict:  # this needs to be done with dictionaries unfortunately
-        badge_tuple = ('badge_info', 'badges')
-        for badge_type in badge_tuple:
+        for badge_type in ('badge_info', 'badges'):
             if badge_type in dprs:
                 dprs[badge_type] = [Badge(*badge.split('/')) for badge in dprs[badge_type].split(',')]
-        emote_tuple = ('emote_sets', 'emotes')
-        for emote_type in emote_tuple:
+        for emote_type in ('emote_sets', 'emotes'):
             if emote_type in dprs:
                 dprs[emote_type] = [x for x in dprs[emote_type].split(',')]
-
         return dprs
 
     def prs_conv(self, prs: GLOBALUSERSTATE):  # i hate this already but what you gonna do
@@ -327,7 +332,7 @@ class Session(object):
             entry = getattr(prs, field.name)
             if not isinstance(entry, type(None)) and type(field.type) == type and not isinstance(entry, field.type):
                 if field.type == bool:
-                    entry = self.attempt(int, entry)
+                    entry = self.attempt(int, entry, output=False)
                 # log.debug(f'{type(entry)}: {field.type}: {type(field.type)}: {type}')
                 self.attempt(setattr, prs, field.name, field.type(entry))
 
@@ -338,6 +343,15 @@ class Session(object):
         self.prs_conv(prs)
         return prs
 
+    def parse_channel(self, chan: str, line: str):
+        class_name = chan if isinstance(chan, str) else type(chan).__name__
+        return re.search(f'{class_name} ' + r"(#[a-zA-Z0-9-_\w]+)", line).group(1)
+
+    def proxy_send_obj(self, prs: Messageable, channel: str):
+        def _send_proxy(message: str):  # construct send function that can be called from ctx
+            self.send(message, channel)
+        prs.send = _send_proxy
+
     def parse_privmsg(self, prs: Messageable, line: str, oprs: Messageable = None) -> None:  # user regex provided by RingoMär <3
         class_name = type(oprs).__name__ if oprs else type(prs).__name__  # basically only for the usernotice subcalls
         try:
@@ -345,15 +359,16 @@ class Session(object):
         except AttributeError:
             user = "Anon"
 
-        channel = re.search(f'{class_name} ' + r"(#[a-zA-Z0-9-_\w]+)", line).group(1)
+        channel = self.parse_channel(class_name, line)
         msg = re.search(f'{class_name} {channel}' + r'..(.*)', line)
         if msg: msg = msg.group(1)
 
         prs.message = Message(user, channel, msg)
 
-        def _send_proxy(message: str):  # construct send function that can be called from ctx
-            self.send(message, channel)
-        prs.send = _send_proxy
+        self.proxy_send_obj(prs, channel)
+        # def _send_proxy(message: str):  # construct send function that can be called from ctx
+        #     self.send(message, channel)
+        # prs.send = _send_proxy
 
     def parse_action(self, prs: PRIVMSG) -> None:
         SOH = chr(1)  # ASCII SOH (Start of Header) Control Character
@@ -383,8 +398,8 @@ class Session(object):
         self.format_display_name(prs)
 
         prs.name = oprs.msg_param_ritual_name
-        self.call_listeners('ritual', ctx=prs)
-        log.debug(prs)  # i haven't actually seen this so i wanna log it
+        self.call_listeners(f'ritual:{prs.name}', ctx=prs)  # this will be new new catergory format "listener:sub_type"
+        # self.call_listeners(prs.name, ctx=prs)
 
     def parse_subscription(self, oprs: USERNOTICE, line: str) -> None:
         prs = self.create_prs(SUBSCRIPTION, line)
@@ -405,7 +420,8 @@ class Session(object):
         prs.plan_name = oprs.msg_param_sub_plan_name
         prs.gifted_months = oprs.msg_param_gift_months
 
-        self.call_listeners(oprs.msg_id, ctx=prs)
+        # self.call_listeners(f'subscription:{oprs.msg_id}', ctx=prs)
+        self.call_listeners(f'sub:{oprs.msg_id}', ctx=prs)
         self.call_listeners('anysub', ctx=prs)
 
     def parse_raid(self, oprs: USERNOTICE, line: str) -> None:
@@ -440,13 +456,14 @@ class Session(object):
             # sub, resub, subgift, anonsubgift, submysterygift, giftpaidupgrade, rewardgift, anongiftpaidupgrade, raid, unraid, ritual, bitsbadgetier
 
             match prs.msg_id:
-                case 'sub' | 'resub' | 'subgift' | 'anonsubgift' | 'giftpaidupgrade' | 'anongiftpaidupgrade':
+                case 'sub' | 'resub' | 'subgift' | 'anonsubgift' | 'submysterygift' | 'giftpaidupgrade' | 'anongiftpaidupgrade':
                     self.parse_subscription(prs, line)
                 case 'unraid':
                     self.call_listeners('unraid', ctx=prs)
                 case 'raid':
                     self.parse_raid(prs, line)
-                case 'bitsbadgetier' | 'rewardgift' | 'submysterygift':  # I need to do more research on these
+                case 'bitsbadgetier' | 'rewardgift':  # I need to do more research on these
+                    log.debug(line)
                     log.debug(prs)  # this will be a usernotice. it will save to file
                 case 'ritual':
                     self.parse_ritual(prs, line)
@@ -456,10 +473,9 @@ class Session(object):
 
         elif 'ROOMSTATE' in line and line[0] == '@':
             prs = self.create_prs(ROOMSTATE, line)
+            prs.channel = self.parse_channel(prs, line)
+            self.proxy_send_obj(prs, prs.channel)
             self.call_listeners('roomstate', ctx=prs)
-
-            print(line)
-            print(prs)
 
         elif 'USERSTATE' in line and line[0] == '@':
             prs = self.create_prs(USERSTATE, line)
@@ -492,20 +508,25 @@ class Session(object):
         #     log.debug(f'THE FOLLOWING IS NOT BEING HANDLED:\n{line}')
 
     def receive(self) -> None:  # I've compressed the shit outta this code
+        # log.info('Parsing')
         for line in self.sock.recv(16384).decode('utf-8', 'replace').split("\r\n")[:-1]:
             # log.debug(line)
             self.ping(line)
             self.parse(line)
 
-    def call_listeners(self, event: str, **kwargs) -> None:
-        if 'any' not in event:  # remove the explicit check cuz i want anysub to be ignored as well
-            if ctx := kwargs.get('ctx', None):  # walrus zaqV
-                self.log_to_console(ctx)
-            self.call_listeners('any', **kwargs)
+    def _lcall(self, event: str, **kwargs):
         if event not in _listeners:
             return
         for func in _listeners[event]:
             func(self, **kwargs)
+
+    def call_listeners(self, event: str, **kwargs) -> None:
+        if ':' in event: self._lcall(event.split(':')[0], **kwargs)
+        self._lcall(event, **kwargs)
+        if 'any' not in event:
+            if ctx := kwargs.get('ctx', None):
+                self.log_to_console(ctx)
+            self._lcall('any', **kwargs)
 
     def func_on_cooldown(self, func: Callable, time: int) -> bool:
         time_now = datetime.datetime.utcnow()
@@ -528,11 +549,17 @@ class Session(object):
         return content * math.trunc((length) / len(content))  # need to trunc cuz we always round down
 
 
-def event(event: str = None) -> Callable:  # listener/decorator for on_message
+def event(events: Union[str, list[str]] = 'any') -> Callable:  # listener/decorator for any event
+    events = events if isinstance(events, list) else [events]
+
     def wrapper(func: Callable) -> Callable:
-        add_listener(func, event)
+        for event in events:
+            add_listener(func, event)
         return func
     return wrapper
+
+
+events = event
 
 
 def cooldown(time: int) -> Callable:
@@ -547,7 +574,7 @@ def cooldown(time: int) -> Callable:
 
 
 def ignore_myself() -> Callable:
-    def decorator(func: Callable) -> Callable:  # TODO: Add list support
+    def decorator(func: Callable) -> Callable:
         def wrapper(self: Session, ctx: Messageable) -> Callable:
             if ctx.message.author.lower() != self.nick:
                 return func(self, ctx)
@@ -556,10 +583,10 @@ def ignore_myself() -> Callable:
     return decorator
 
 
-def author(name: str) -> Callable:  # check author
-    def decorator(func: Callable) -> Callable:  # TODO: Add list support
+def author(names: Union[str, list[str]]) -> Callable:  # check author
+    def decorator(func: Callable) -> Callable:
         def wrapper(self: Session, ctx: Messageable) -> Callable:
-            if ctx.message.author.lower() == name.lower():
+            if any(ctx.message.author.lower() == name.lower() for name in tuple(names)):
                 return func(self, ctx)
             return False
         return wrapper
@@ -569,16 +596,19 @@ def author(name: str) -> Callable:  # check author
 authors = author
 
 
-def channel(name: str) -> Callable:  # check channel
+def channel(names: Union[str, list[str]]) -> Callable:  # check channel
     def decorator(func: Callable) -> Callable:
         def wrapper(self: Session, ctx: Messageable) -> Callable:
-            def adapt(_name) -> str:
+            def adapt(_name: str) -> str:
                 return _name if _name[0] == '#' else f'#{_name}'
-            if ctx.message.channel == adapt(name):
+            if any(ctx.message.channel == adapt(name) for name in tuple(names)):
                 return func(self, ctx)
             return False
         return wrapper
     return decorator
+
+
+channels = channel
 
 
 def message(content: str, mode: str = 'eq', ignore_self: bool = True) -> Callable:  # check message
@@ -597,7 +627,7 @@ def message(content: str, mode: str = 'eq', ignore_self: bool = True) -> Callabl
                         if content in ctx.message.content:
                             return True
             if advance():
-                if not ignore_self and ctx.message.author.lower() == self.nick:
+                if ignore_self and ctx.message.author.lower() == self.nick:
                     return False
                 return func(self, ctx)
             return False
