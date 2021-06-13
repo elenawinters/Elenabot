@@ -456,10 +456,14 @@ class Session(object):
 
             # these are the valid msg_id's
             # sub, resub, subgift, anonsubgift, submysterygift, giftpaidupgrade, rewardgift, anongiftpaidupgrade, raid, unraid, ritual, bitsbadgetier
-            # extendsub is not in the spec :hmm:
+            # undocumented: extendsub, primepaidupgrade
+
+            # I don't like having to put subs in multiple cases, but Python does not allow wraparound with SPM.
 
             match prs.msg_id:
-                case 'sub' | 'resub' | 'subgift' | 'anonsubgift' | 'submysterygift' | 'giftpaidupgrade' | 'anongiftpaidupgrade' | 'extendsub':
+                case 'sub' | 'resub' | 'extendsub' | 'primepaidupgrade':
+                    self.parse_subscription(prs, line)
+                case 'subgift' | 'anonsubgift' | 'submysterygift' | 'giftpaidupgrade' | 'anongiftpaidupgrade':
                     self.parse_subscription(prs, line)
                 case 'unraid':
                     self.call_listeners('unraid', ctx=prs)
