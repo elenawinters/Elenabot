@@ -18,6 +18,7 @@ import datetime
 import inspect
 import logging
 import socket
+import time
 import math
 import sys
 import re
@@ -285,7 +286,7 @@ class Session(object):
 
     def pong(self) -> None:
         self.socksend("PONG :tmi.twitch.tv")
-        log.debug('Server sent PING. We sent PONG.')
+        # log.debug('Server sent PING. We sent PONG.')
 
     def ping(self, line: str) -> None:
         if line == "PING :tmi.twitch.tv":
@@ -399,7 +400,8 @@ class Session(object):
 
         prs.name = oprs.msg_param_ritual_name
         self.call_listeners(f'ritual:{prs.name}', ctx=prs)  # this will be new new catergory format "listener:sub_type"
-        # self.call_listeners(prs.name, ctx=prs)
+        if prs.name != 'new_chatter':
+            log.debug(prs)  # just incase new rituals are added
 
     def parse_subscription(self, oprs: USERNOTICE, line: str) -> None:
         prs = self.create_prs(SUBSCRIPTION, line)
@@ -454,19 +456,20 @@ class Session(object):
 
             # these are the valid msg_id's
             # sub, resub, subgift, anonsubgift, submysterygift, giftpaidupgrade, rewardgift, anongiftpaidupgrade, raid, unraid, ritual, bitsbadgetier
+            # extendsub is not in the spec :hmm:
 
             match prs.msg_id:
-                case 'sub' | 'resub' | 'subgift' | 'anonsubgift' | 'submysterygift' | 'giftpaidupgrade' | 'anongiftpaidupgrade':
+                case 'sub' | 'resub' | 'subgift' | 'anonsubgift' | 'submysterygift' | 'giftpaidupgrade' | 'anongiftpaidupgrade' | 'extendsub':
                     self.parse_subscription(prs, line)
                 case 'unraid':
                     self.call_listeners('unraid', ctx=prs)
                 case 'raid':
                     self.parse_raid(prs, line)
-                case 'bitsbadgetier' | 'rewardgift':  # I need to do more research on these
-                    log.debug(line)
-                    log.debug(prs)  # this will be a usernotice. it will save to file
                 case 'ritual':
                     self.parse_ritual(prs, line)
+                case _:  # other cases for testing
+                    log.debug(line)
+                    log.debug(prs)
 
         elif 'RECONNECT' in line:  # user influence shouldn't be possible
             raise ReconnectReceived('Server sent RECONNECT.')
@@ -508,11 +511,9 @@ class Session(object):
         #     log.debug(f'THE FOLLOWING IS NOT BEING HANDLED:\n{line}')
 
     def receive(self) -> None:  # I've compressed the shit outta this code
-        # log.info('Parsing')
         for line in self.sock.recv(16384).decode('utf-8', 'replace').split("\r\n")[:-1]:
-            # log.debug(line)
-            self.ping(line)
             self.parse(line)
+            self.ping(line)
 
     def _lcall(self, event: str, **kwargs):
         if event not in _listeners:
