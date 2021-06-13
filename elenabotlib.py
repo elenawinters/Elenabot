@@ -17,6 +17,7 @@ import traceback
 import datetime
 import inspect
 import logging
+import struct
 import socket
 import time
 import math
@@ -188,8 +189,8 @@ def configure_logger(_level=logging.INFO) -> None:
     log.addHandler(d_log)
 
 
-_dataclasses = Union[Messageable, CLEARCHAT, ROOMSTATE, NOTICE, GLOBALUSERSTATE, USERSTATE,
-                     PRIVMSG, USERNOTICEBASE, USERNOTICE, SUBSCRIPTION, RITUAL, RAID]
+# _dataclasses = Union[Messageable, CLEARCHAT, ROOMSTATE, NOTICE, GLOBALUSERSTATE, USERSTATE,
+#                      PRIVMSG, USERNOTICEBASE, USERNOTICE, SUBSCRIPTION, RITUAL, RAID]
 _listeners = {}
 
 
@@ -216,9 +217,10 @@ class Session(object):
     def __init__(self) -> None:
         self.host = 'irc.twitch.tv'
         self.port = 6667
-        self.sock = socket.socket()
         self.cooldowns = {}
         self.channels = []
+
+        self.last = ''
 
     def start(self, token, nick, channels=None) -> None:
         self.token = token
@@ -237,7 +239,6 @@ class Session(object):
             except (ConnectionResetError, ConnectionAbortedError, ReconnectReceived) as exc:
                 self.sock.shutdown(socket.SHUT_RDWR)
                 self.sock.close()
-                self.sock = socket.socket()
                 log.error(f'Reconnecting: {type(exc).__name__}: {exc}')
                 # log.exception(exc)
                 return
@@ -253,7 +254,8 @@ class Session(object):
         self.sock.send(f"{sock_msg}\r\n".encode("utf-8"))
 
     def connect(self) -> None:
-        log.debug(f'Attemptng to connect to {self.host}:{self.port}')
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        log.debug(f'Attempting to connect to {self.host}:{self.port}')
         try:
             self.sock.connect((self.host, self.port))  # only called once, not worth writing seperate wrapper
             self.socksend(f"PASS {self.token}")
@@ -512,12 +514,24 @@ class Session(object):
             self.call_listeners('clearmsg', ctx=prs)
 
         # else:
-        #     log.debug(f'THE FOLLOWING IS NOT BEING HANDLED:\n{line}')
+        #     log.debug(line)
+            # log.debug(f'THE FOLLOWING IS NOT BEING HANDLED:\n{line}')
 
     def receive(self) -> None:  # I've compressed the shit outta this code
         for line in self.sock.recv(16384).decode('utf-8', 'replace').split("\r\n")[:-1]:
             self.parse(line)
             self.ping(line)
+        # data = self.sock.recv(16384).decode('utf-8', 'replace').split("\r\n")[:-1]
+        # data = self.sock.recv(2**14).decode('utf-8', 'replace').split("\r\n")[:-1]
+        # iter_log = True
+        # for line in data:
+        #     self.parse(line)
+        #     if not line.startswith('@') and iter_log:
+        #         iter_log = False
+        #         log.debug(line)
+        #         log.debug(self.last)
+        #     self.ping(line)
+        # self.last = data
 
     def _lcall(self, event: str, **kwargs):
         if event not in _listeners:
