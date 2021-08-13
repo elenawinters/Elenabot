@@ -229,8 +229,10 @@ class Session(object):
 
         self.loop = asyncio.get_event_loop()
 
+        ws_timeout = aiohttp.ClientTimeout(total=86400)  # 1 day
+
         async def wsloop():
-            async with aiohttp.ClientSession().ws_connect(f'{self.host}:{self.port}') as ws:
+            async with aiohttp.ClientSession(timeout=ws_timeout).ws_connect(f'{self.host}:{self.port}') as ws:
                 self.sock = ws
                 await self.connect()
                 await self.join(channels)
@@ -240,44 +242,21 @@ class Session(object):
                         await self.ping(msg.data)
                     else:
                         log.debug(f'Unknown WSMessage Type: {msg.type}')
+                # await self.part(channels)
+        # self.loop.run_until_complete(wsloop())
 
-        self.loop.run_until_complete(wsloop())
-        # await self.recv()
-
-        # self.loop = asyncio.get_event_loop()
-        # while True:
-        #     # self.connect()
-        #     if channels:
-        #         self.join(channels)
-        #     self.loop()
-
-    async def recv(self) -> None:
-        while True:
+        while True:  # this loops over the aiohttp code
             try:
-                self.receive()
-            except (ConnectionResetError, ConnectionAbortedError, ReconnectReceived) as exc:
-                # TODO: CLOSE CONNECTION? THIS SHOULD BE AUTOMATICALLY DONE
-                # self.sock.shutdown(socket.SHUT_RDWR)
-                # self.sock.close()
-                log.error(f'Reconnecting: {type(exc).__name__}: {exc}')
-                # log.exception(exc)
-                return
-            except Exception as e:
-                log.exception(e)
-
-    # def shutdown(self) -> None:
-    #     self.sock.shutdown(socket.SHUT_RDWR)
-    #     self.sock.close()
-    #     sys.exit(0)
+                self.loop.run_until_complete(wsloop())
+            except Exception as exc:
+                log.exception(exc)
 
     async def socksend(self, sock_msg) -> None:  # removes the need to do the converting and stuff
         await self.sock.send_str(sock_msg)
-        # self.sock.post(f"{sock_msg}\r\n".encode("utf-8"))
 
     async def connect(self) -> None:
         log.debug(f'Attempting to connect to {self.host}:{self.port}')
         try:
-            # self.sock.connect((self.host, self.port))  # only called once, not worth writing seperate wrapper
             await self.socksend(f"PASS {self.token}")
             await self.socksend(f"NICK {self.nick}")
             await self.socksend("CAP REQ :twitch.tv/tags")
@@ -302,7 +281,7 @@ class Session(object):
         self.channels.remove(channels)
         for x in channels:
             c = x.lower() if x[0] == '#' else f'#{x.lower()}'
-            self.socksend(f"PART {c}")
+            await self.socksend(f"PART {c}")
             log.info(f'Left {c}')
             await self.call_listeners('part_self', channel=c)
 
@@ -501,6 +480,7 @@ class Session(object):
             raise ReconnectReceived('Server sent RECONNECT.')
 
         elif 'ROOMSTATE' in line and line[0] == '@':
+            # log.debug('ROOMSTATE')
             prs = self.create_prs(ROOMSTATE, line)
             prs.channel = self.parse_channel(prs, line)
             self.proxy_send_obj(prs, prs.channel)
@@ -558,6 +538,8 @@ class Session(object):
         if event not in _listeners:
             return
         for func in _listeners[event]:
+            # log.debug(type(func))
+            # log.debug(func.__name__)
             await func(self, **kwargs)
 
     async def call_listeners(self, event: str, **kwargs) -> None:
@@ -589,6 +571,10 @@ class Session(object):
         return content * math.trunc((length) / len(content))  # need to trunc cuz we always round down
 
 
+async def boolFalse():
+    return
+
+
 def listify(text: Union[list, str]):
     return text if isinstance(text, list) else [text]
 
@@ -611,7 +597,7 @@ def cooldown(time: int) -> Callable:
         def wrapper(self: Session, ctx) -> Callable:
             if self.func_on_cooldown(func, time):
                 # log.debug(f'{func.__name__} is on cooldown!')
-                return False
+                return boolFalse()
             return func(self, ctx)
         return wrapper
     return decorator
@@ -622,7 +608,7 @@ def ignore_myself() -> Callable:
         def wrapper(self: Session, ctx: Messageable) -> Callable:
             if ctx.message.author.lower() != self.nick:
                 return func(self, ctx)
-            return False
+            return boolFalse()
         return wrapper
     return decorator
 
@@ -632,7 +618,7 @@ def author(names: Union[str, list[str]]) -> Callable:  # check author
         def wrapper(self: Session, ctx: Messageable) -> Callable:
             if any(ctx.message.author.lower() == name.lower() for name in listify(names)):
                 return func(self, ctx)
-            return False
+            return boolFalse()
         return wrapper
     return decorator
 
@@ -647,7 +633,7 @@ def channel(names: Union[str, list[str]]) -> Callable:  # check channel
                 return _name if _name[0] == '#' else f'#{_name}'
             if any(ctx.message.channel == adapt(name) for name in listify(names)):
                 return func(self, ctx)
-            return False
+            return boolFalse()
         return wrapper
     return decorator
 
@@ -680,12 +666,13 @@ def message(*args: tuple, **kwargs: dict) -> Callable:
             ignore_self = kwargs.get('ignore_self', True)
 
             possible = list(args)
-            possible.remove(mode)
+            if mode in possible:
+                possible.remove(mode)
 
             if any(msg_compare(mode, ctx.message.content, msg) for msg in possible):
                 if ignore_self and ctx.message.author.lower() == self.nick:
-                    return False
+                    return boolFalse()
                 return func(self, ctx)
-            return False
+            return boolFalse()
         return wrapper
     return decorator

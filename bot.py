@@ -79,7 +79,7 @@ class Elenabot(Session):
         if not os.path.exists(config_file):
             config['twitch'] = {
                 'oauth': 'oauth'.encode('utf-8').hex(),
-                'channels': ['channel_to_be_in'],  # this is standard list format in the ini file. example: ['elenaberry']
+                'channels': ['tmiloadtesting2', 'twitchmedia_qs_10'],  # this is standard list format in the ini file. example: ['elenaberry']
                 'nickname': 'your_lowercase_username'
             }
             with open(config_file, 'w') as configfile:
