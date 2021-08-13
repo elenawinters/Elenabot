@@ -371,8 +371,8 @@ class Session(object):
         return re.search(f'{class_name} ' + r"(#[a-zA-Z0-9-_\w]+)", line).group(1)
 
     def proxy_send_obj(self, prs: Messageable, channel: str):
-        def _send_proxy(message: str):  # construct send function that can be called from ctx
-            self.send(message, channel)
+        async def _send_proxy(message: str):  # construct send function that can be called from ctx
+            await self.send(message, channel)
         prs.send = _send_proxy
 
     def parse_privmsg(self, prs: Messageable, line: str, oprs: Messageable = None) -> None:  # user regex provided by RingoMär <3
