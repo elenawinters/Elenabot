@@ -1,11 +1,78 @@
+from dataclasses import dataclass
 from elenabotlib import *
 import sys, os, ast
 import configparser
 import random
 
 
+@dataclass
+class LangFilterResult:
+    words: list
+    exceptions: list
+    count: int
+
+
+class LangFilter:
+    def __init__(self, message):
+        self.message = message
+
+    def process(self):
+        ematches = []
+        matches = []
+        ecount = 0
+        count = 0
+
+        with open('words.txt', 'r') as file:
+            wdat = file.read().split(',')
+
+        for word in wdat:
+            _c = self.message.count(word)
+            # print(_c)
+            if _c > 0:
+                matches.append(word)
+                count += _c
+
+        with open('exceptions.txt', 'r') as file:
+            edat = file.read().split(',')
+
+        for exc in edat:
+            _c = self.message.count(exc)
+            if _c > 0:
+                ematches.append(exc)
+                ecount += _c
+
+        print(matches)
+        print(ematches)
+        # # TODO: Filter out matches if an exception was found
+        # _rem = []
+        # for ematc in ematches:
+        #     for matc in matches:
+        #         if matc in ematc:
+        #             _rem.append(matc)
+
+        # print(_rem)
+
+        _rem = [tuple((matc, ematc)) for matc in matches for ematc in ematches if matc in ematc]  # see what matched to what
+        # _rem = [x for x in _rem if _rem[x][1] == ]
+        print(_rem)
+
+        # _rem = [tuple(matc, ematc) for matc in matches for ematc in ematches if matc in ematc]
+        # if _rem:
+        #     print(_rem)
+        # else:
+        #     print('rem is empty')
+
+        # for phrase in fury.execute("SELECT phrase FROM swear WHERE serverid = ?", (serverid, )):
+        #     offenceTime += msg.count('{}'.format(phrase[0]))
+        #     if msg.count('{}'.format(phrase[0])) > 0:
+        #         swears += '{}, '.format(phrase[0])
+        # return offenceTime, swears
+
+
 class Elenabot(Session):
     def __init__(self):
+        # LangFilter('assassins are trying to fuck me in the asswhore').process()
+        # return
         super().__init__()  # unfortunately, this is a required call for elenabotlib implemented like this
         config = configparser.ConfigParser()
         config_file = 'config.ini'
@@ -21,7 +88,10 @@ class Elenabot(Session):
             config.read(config_file)
 
         channels = ast.literal_eval(config['twitch']['channels'])
+
         self.start(config['twitch']['oauth'], config['twitch']['nickname'], channels)
+
+    # @event('message')
 
     # @event('roomstate')
     # def test_roomstate_stuff(self, ctx: ROOMSTATE):
@@ -43,9 +113,14 @@ class Elenabot(Session):
     # def test_new_chatter_ritual_stuff(self, ctx):
     #     log.debug(f'NEW CHATTER: {ctx}')
 
-    @event('raid')
-    def test_raid_stuff(self, ctx):
-        log.debug(ctx)
+    # @event('message')
+    # @message('zaqHeart', 'zaqLurkie', 'zaqCool', 'zaqHayes', 'zaqClap', 'in')
+    # def test_new_msg_deco(self, ctx):
+    #     log.debug(ctx)
+
+    # @event('raid')
+    # def test_raid_stuff(self, ctx):
+    #     log.debug(ctx)
 
     # @event('userstate')
     # @channel('elenaberry')

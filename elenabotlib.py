@@ -15,10 +15,11 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Union
 import traceback
 import datetime
+import aiohttp
+import asyncio
 import inspect
 import logging
 import struct
-import socket
 import time
 import math
 import sys
@@ -215,8 +216,8 @@ def add_listener(func, name='any') -> None:
 
 class Session(object):
     def __init__(self) -> None:
-        self.host = 'irc.twitch.tv'
-        self.port = 6667
+        self.host = 'ws://irc-ws.chat.twitch.tv'
+        self.port = 80
         self.cooldowns = {}
         self.channels = []
 
@@ -226,73 +227,92 @@ class Session(object):
         self.token = token
         self.nick = nick
 
-        while True:
-            self.connect()
-            if channels:
-                self.join(channels)
-            self.loop()
+        self.loop = asyncio.get_event_loop()
 
-    def loop(self) -> None:
+        async def wsloop():
+            async with aiohttp.ClientSession().ws_connect(f'{self.host}:{self.port}') as ws:
+                self.sock = ws
+                await self.connect()
+                await self.join(channels)
+                async for msg in self.sock:
+                    if msg.type == aiohttp.WSMsgType.TEXT:
+                        await self.parse(msg.data)
+                        await self.ping(msg.data)
+                    else:
+                        log.debug(f'Unknown WSMessage Type: {msg.type}')
+
+        self.loop.run_until_complete(wsloop())
+        # await self.recv()
+
+        # self.loop = asyncio.get_event_loop()
+        # while True:
+        #     # self.connect()
+        #     if channels:
+        #         self.join(channels)
+        #     self.loop()
+
+    async def recv(self) -> None:
         while True:
             try:
                 self.receive()
             except (ConnectionResetError, ConnectionAbortedError, ReconnectReceived) as exc:
-                self.sock.shutdown(socket.SHUT_RDWR)
-                self.sock.close()
+                # TODO: CLOSE CONNECTION? THIS SHOULD BE AUTOMATICALLY DONE
+                # self.sock.shutdown(socket.SHUT_RDWR)
+                # self.sock.close()
                 log.error(f'Reconnecting: {type(exc).__name__}: {exc}')
                 # log.exception(exc)
                 return
             except Exception as e:
                 log.exception(e)
 
-    def shutdown(self) -> None:
-        self.sock.shutdown(socket.SHUT_RDWR)
-        self.sock.close()
-        sys.exit(0)
+    # def shutdown(self) -> None:
+    #     self.sock.shutdown(socket.SHUT_RDWR)
+    #     self.sock.close()
+    #     sys.exit(0)
 
-    def socksend(self, sock_msg) -> None:  # removes the need to do the converting and stuff
-        self.sock.send(f"{sock_msg}\r\n".encode("utf-8"))
+    async def socksend(self, sock_msg) -> None:  # removes the need to do the converting and stuff
+        await self.sock.send_str(sock_msg)
+        # self.sock.post(f"{sock_msg}\r\n".encode("utf-8"))
 
-    def connect(self) -> None:
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    async def connect(self) -> None:
         log.debug(f'Attempting to connect to {self.host}:{self.port}')
         try:
-            self.sock.connect((self.host, self.port))  # only called once, not worth writing seperate wrapper
-            self.socksend(f"PASS {self.token}")
-            self.socksend(f"NICK {self.nick}")
-            self.socksend("CAP REQ :twitch.tv/tags")
-            self.socksend("CAP REQ :twitch.tv/membership")
-            self.socksend("CAP REQ :twitch.tv/commands")
+            # self.sock.connect((self.host, self.port))  # only called once, not worth writing seperate wrapper
+            await self.socksend(f"PASS {self.token}")
+            await self.socksend(f"NICK {self.nick}")
+            await self.socksend("CAP REQ :twitch.tv/tags")
+            await self.socksend("CAP REQ :twitch.tv/membership")
+            await self.socksend("CAP REQ :twitch.tv/commands")
         except Exception as exc:
-            log.exception(f'Error occured while connecting to IRC: ', exc_info=exc)
+            log.exception(f'Error occured while connecting to WebSocket: ', exc_info=exc)
         else:
             log.info('Connected')
 
-    def join(self, channels: Union[list, str]) -> None:
+    async def join(self, channels: Union[list, str]) -> None:
         channels = channels if type(list) else list(channels)
         self.channels.append(channels)
         for x in channels:
             c = x.lower() if x[0] == '#' else f'#{x.lower()}'
-            self.socksend(f"JOIN {c}")
+            await self.socksend(f"JOIN {c}")
             log.info(f'Joined {c}')
-            self.call_listeners('join_self', channel=c)
+            await self.call_listeners('join_self', channel=c)
 
-    def part(self, channels: Union[list, str]) -> None:  # this is currently untested
+    async def part(self, channels: Union[list, str]) -> None:  # this is currently untested
         channels = channels if type(list) else list(channels)
         self.channels.remove(channels)
         for x in channels:
             c = x.lower() if x[0] == '#' else f'#{x.lower()}'
             self.socksend(f"PART {c}")
             log.info(f'Left {c}')
-            self.call_listeners('part_self', channel=c)
+            await self.call_listeners('part_self', channel=c)
 
-    def pong(self) -> None:
-        self.socksend("PONG :tmi.twitch.tv")
+    async def pong(self) -> None:
+        await self.socksend("PONG :tmi.twitch.tv")
         # log.debug('Server sent PING. We sent PONG.')
 
-    def ping(self, line: str) -> None:
+    async def ping(self, line: str) -> None:
         if line == "PING :tmi.twitch.tv":
-            self.pong()
+            await self.pong()
 
     def cast(self, dclass, data) -> dict:
         items = {}
@@ -395,17 +415,17 @@ class Session(object):
         else:
             prs.message.author = prs.display_name
 
-    def parse_ritual(self, oprs: USERNOTICE, line: str) -> None:
+    async def parse_ritual(self, oprs: USERNOTICE, line: str) -> None:
         prs = self.create_prs(RITUAL, line)
         self.parse_privmsg(prs, line, oprs)
         self.format_display_name(prs)
 
         prs.name = oprs.msg_param_ritual_name
-        self.call_listeners(f'ritual:{prs.name}', ctx=prs)  # this will be new new catergory format "listener:sub_type"
+        await self.call_listeners(f'ritual:{prs.name}', ctx=prs)  # this will be new new catergory format "listener:sub_type"
         if prs.name != 'new_chatter':
             log.debug(prs)  # just incase new rituals are added
 
-    def parse_subscription(self, oprs: USERNOTICE, line: str) -> None:
+    async def parse_subscription(self, oprs: USERNOTICE, line: str) -> None:
         prs = self.create_prs(SUBSCRIPTION, line)
         self.parse_privmsg(prs, line, oprs)
         self.format_display_name(prs)
@@ -425,10 +445,10 @@ class Session(object):
         prs.gifted_months = oprs.msg_param_gift_months
 
         # self.call_listeners(f'subscription:{oprs.msg_id}', ctx=prs)
-        self.call_listeners(f'sub:{oprs.msg_id}', ctx=prs)
-        self.call_listeners('anysub', ctx=prs)
+        await self.call_listeners(f'sub:{oprs.msg_id}', ctx=prs)
+        await self.call_listeners('anysub', ctx=prs)
 
-    def parse_raid(self, oprs: USERNOTICE, line: str) -> None:
+    async def parse_raid(self, oprs: USERNOTICE, line: str) -> None:
         prs = self.create_prs(RAID, line)
         self.parse_privmsg(prs, line, oprs)
         self.format_display_name(prs)
@@ -436,9 +456,9 @@ class Session(object):
         prs.raider = oprs.msg_param_displayName if oprs.msg_param_displayName else oprs.msg_param_login
         prs.viewers = oprs.msg_param_viewerCount
 
-        self.call_listeners('raid', ctx=prs)
+        await self.call_listeners('raid', ctx=prs)
 
-    def parse(self, line: str) -> None:  # use an elif chain or match case (maybeeee down the line)
+    async def parse(self, line: str) -> None:  # use an elif chain or match case (maybeeee down the line)
         if 'PRIVMSG' in line and line[0] == '@':
             prs = self.create_prs(PRIVMSG, line)
             self.parse_privmsg(prs, line)
@@ -447,14 +467,14 @@ class Session(object):
 
             # log.debug(f'{prs.display_name} and {prs.message.author}')
 
-            self.call_listeners('message', ctx=prs)
+            await self.call_listeners('message', ctx=prs)
 
         elif 'USERNOTICE' in line and line[0] == '@':
             prs = self.create_prs(USERNOTICE, line)
             self.parse_privmsg(prs, line)
             self.format_display_name(prs)
 
-            self.call_listeners('usernotice', ctx=prs)
+            await self.call_listeners('usernotice', ctx=prs)
 
             # these are the valid msg_id's
             # sub, resub, subgift, anonsubgift, submysterygift, giftpaidupgrade, rewardgift, anongiftpaidupgrade, raid, unraid, ritual, bitsbadgetier
@@ -464,15 +484,15 @@ class Session(object):
 
             match prs.msg_id:
                 case 'sub' | 'resub' | 'extendsub' | 'primepaidupgrade':
-                    self.parse_subscription(prs, line)
+                    await self.parse_subscription(prs, line)
                 case 'subgift' | 'anonsubgift' | 'submysterygift' | 'giftpaidupgrade' | 'anongiftpaidupgrade':
-                    self.parse_subscription(prs, line)
+                    await self.parse_subscription(prs, line)
                 case 'unraid':
-                    self.call_listeners('unraid', ctx=prs)
+                    await self.call_listeners('unraid', ctx=prs)
                 case 'raid':
-                    self.parse_raid(prs, line)
+                    await self.parse_raid(prs, line)
                 case 'ritual':
-                    self.parse_ritual(prs, line)
+                    await self.parse_ritual(prs, line)
                 case _:  # other cases for testing
                     log.debug(line)
                     log.debug(prs)
@@ -484,34 +504,35 @@ class Session(object):
             prs = self.create_prs(ROOMSTATE, line)
             prs.channel = self.parse_channel(prs, line)
             self.proxy_send_obj(prs, prs.channel)
-            self.call_listeners('roomstate', ctx=prs)
+            await self.call_listeners('roomstate', ctx=prs)
+            log.info(prs)
 
         elif 'USERSTATE' in line and line[0] == '@':
             prs = self.create_prs(USERSTATE, line)
             self.parse_privmsg(prs, line)
             self.format_display_name(prs)
 
-            self.call_listeners('userstate', ctx=prs)
+            await self.call_listeners('userstate', ctx=prs)
 
         elif 'NOTICE' in line and line[0] == '@':
             prs = self.create_prs(NOTICE, line)
             self.parse_privmsg(prs, line)
 
-            self.call_listeners('notice', ctx=prs)
+            await self.call_listeners('notice', ctx=prs)
 
         elif 'CLEARCHAT' in line and line[0] == '@':
             prs = self.create_prs(CLEARCHAT, line)
             self.parse_privmsg(prs, line)
             self.swap_message_order(prs)
 
-            self.call_listeners('clearchat', ctx=prs)
+            await self.call_listeners('clearchat', ctx=prs)
 
         elif 'CLEARMSG' in line and line[0] == '@':
             prs = self.create_prs(CLEARMSG, line)
             self.parse_privmsg(prs, line)
             self.format_display_name(prs)
 
-            self.call_listeners('clearmsg', ctx=prs)
+            await self.call_listeners('clearmsg', ctx=prs)
 
         # else:
         #     log.debug(line)
@@ -533,19 +554,19 @@ class Session(object):
         #     self.ping(line)
         # self.last = data
 
-    def _lcall(self, event: str, **kwargs):
+    async def _lcall(self, event: str, **kwargs):
         if event not in _listeners:
             return
         for func in _listeners[event]:
-            func(self, **kwargs)
+            await func(self, **kwargs)
 
-    def call_listeners(self, event: str, **kwargs) -> None:
-        if ':' in event: self._lcall(event.split(':')[0], **kwargs)
-        self._lcall(event, **kwargs)
+    async def call_listeners(self, event: str, **kwargs) -> None:
+        if ':' in event: await self._lcall(event.split(':')[0], **kwargs)
+        await self._lcall(event, **kwargs)
         if 'any' not in event:
             if ctx := kwargs.get('ctx', None):
                 self.log_to_console(ctx)
-            self._lcall('any', **kwargs)
+            await self._lcall('any', **kwargs)
 
     def func_on_cooldown(self, func: Callable, time: int) -> bool:
         time_now = datetime.datetime.utcnow()
@@ -558,14 +579,18 @@ class Session(object):
             return False
         return True
 
-    def send(self, message: str, channel: str) -> None:
-        self.socksend(f'PRIVMSG {channel} :{message}')  # placement of the : is important :zaqPbt:
+    async def send(self, message: str, channel: str) -> None:
+        await self.socksend(f'PRIVMSG {channel} :{message}')  # placement of the : is important :zaqPbt:
 
     def maximize_msg(self, content: str, offset: int = 0) -> str:
         return content * math.trunc((500 - offset) / len(content))  # need to trunc cuz we always round down
 
     def fill_msg(self, content: str, length: int = 500) -> str:
         return content * math.trunc((length) / len(content))  # need to trunc cuz we always round down
+
+
+def listify(text: Union[list, str]):
+    return text if isinstance(text, list) else [text]
 
 
 def event(events: Union[str, list[str]] = 'any') -> Callable:  # listener/decorator for any event
@@ -605,7 +630,7 @@ def ignore_myself() -> Callable:
 def author(names: Union[str, list[str]]) -> Callable:  # check author
     def decorator(func: Callable) -> Callable:
         def wrapper(self: Session, ctx: Messageable) -> Callable:
-            if any(ctx.message.author.lower() == name.lower() for name in tuple(names)):
+            if any(ctx.message.author.lower() == name.lower() for name in listify(names)):
                 return func(self, ctx)
             return False
         return wrapper
@@ -620,7 +645,7 @@ def channel(names: Union[str, list[str]]) -> Callable:  # check channel
         def wrapper(self: Session, ctx: Messageable) -> Callable:
             def adapt(_name: str) -> str:
                 return _name if _name[0] == '#' else f'#{_name}'
-            if any(ctx.message.channel == adapt(name) for name in tuple(names)):
+            if any(ctx.message.channel == adapt(name) for name in listify(names)):
                 return func(self, ctx)
             return False
         return wrapper
@@ -630,22 +655,34 @@ def channel(names: Union[str, list[str]]) -> Callable:  # check channel
 channels = channel
 
 
-def message(content: str, mode: str = 'eq', ignore_self: bool = True) -> Callable:  # check message
+def msg_compare(mode: str = 'eq', actual: str = 'test', compare: str = 'test') -> bool:
+    match mode.lower():
+        case 'eq' | 'equals':
+            if actual == compare:
+                return True
+        case 'sw' | 'startswith':
+            return actual.startswith(compare)
+        case 'ew' | 'endswith':
+            return actual.endswith(compare)
+        case 'in' | 'contains':
+            if compare in actual:
+                return True
+
+
+# this new code is slow cuz of the msg_compare check for mode
+def message(*args: tuple, **kwargs: dict) -> Callable:
     def decorator(func: Callable) -> Callable:
         def wrapper(self: Session, ctx: Messageable) -> Callable:
-            def advance() -> bool:
-                match mode:
-                    case 'eq' | 'equals':
-                        if ctx.message.content == content:
-                            return True
-                    case 'sw' | 'startswith':
-                        return ctx.message.content.startswith(content)
-                    case 'ew' | 'endswith':
-                        return ctx.message.content.endswith(content)
-                    case 'in' | 'contains':
-                        if content in ctx.message.content:
-                            return True
-            if advance():
+            mode = [pmode for pmode in args if msg_compare(pmode)]
+            if not mode:
+                mode = kwargs.get('mode', kwargs.get('m', 'eq'))
+            else: mode = mode[0]
+            ignore_self = kwargs.get('ignore_self', True)
+
+            possible = list(args)
+            possible.remove(mode)
+
+            if any(msg_compare(mode, ctx.message.content, msg) for msg in possible):
                 if ignore_self and ctx.message.author.lower() == self.nick:
                     return False
                 return func(self, ctx)
