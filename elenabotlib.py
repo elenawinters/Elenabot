@@ -230,6 +230,7 @@ class Session(object):
         self.loop = asyncio.get_event_loop()
 
         ws_timeout = aiohttp.ClientTimeout(total=86400)  # 1 day
+        # ws_timeout = aiohttp.ClientTimeout(total=60)  # 1 minute
 
         async def wsloop():
             async with aiohttp.ClientSession(timeout=ws_timeout).ws_connect(f'{self.host}:{self.port}') as ws:
@@ -459,7 +460,7 @@ class Session(object):
 
             # these are the valid msg_id's
             # sub, resub, subgift, anonsubgift, submysterygift, giftpaidupgrade, rewardgift, anongiftpaidupgrade, raid, unraid, ritual, bitsbadgetier
-            # undocumented: extendsub, primepaidupgrade
+            # undocumented: extendsub, primepaidupgrade, communitypayforward
 
             # I don't like having to put subs in multiple cases, but Python does not allow wraparound with SPM.
 
@@ -479,7 +480,9 @@ class Session(object):
                     log.debug(prs)
 
         elif 'RECONNECT' in line:  # user influence shouldn't be possible
-            raise ReconnectReceived('Server sent RECONNECT.')
+            log.debug('Server sent RECONNECT.')
+            await self.sock.close()
+            # raise ReconnectReceived('Server sent RECONNECT.')
 
         elif 'ROOMSTATE' in line and line[0] == '@':
             # log.debug('ROOMSTATE')
