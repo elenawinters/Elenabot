@@ -239,9 +239,10 @@ class Session(object):
                 await self.join(channels)
                 async for msg in self.sock:
                     if msg.type == aiohttp.WSMsgType.TEXT:
-                        line = msg.data[:-len('\r\n')]  # remove carriage return and newline
-                        await self.parse(line)
-                        await self.ping(line)
+                        # line = msg.data[:-len('\r\n')]  # remove carriage return and newline
+                        for line in msg.data.split("\r\n")[:-1]:  # ?!?
+                            await self.parse(line)
+                            await self.ping(line)
                     else:
                         log.debug(f'Unknown WSMessage Type: {msg.type}')
                 log.info('WebSocket has been closed!')
