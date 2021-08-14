@@ -238,10 +238,12 @@ class Session(object):
                 await self.join(channels)
                 async for msg in self.sock:
                     if msg.type == aiohttp.WSMsgType.TEXT:
-                        await self.parse(msg.data)
-                        await self.ping(msg.data)
+                        line = msg.data[:-len('\r\n')]  # remove carriage return and newline
+                        await self.parse(line)
+                        await self.ping(line)
                     else:
                         log.debug(f'Unknown WSMessage Type: {msg.type}')
+                log.info('WebSocket has been closed!')
                 # await self.part(channels)
         # self.loop.run_until_complete(wsloop())
 
@@ -462,7 +464,7 @@ class Session(object):
             # I don't like having to put subs in multiple cases, but Python does not allow wraparound with SPM.
 
             match prs.msg_id:
-                case 'sub' | 'resub' | 'extendsub' | 'primepaidupgrade':
+                case 'sub' | 'resub' | 'extendsub' | 'primepaidupgrade' | 'communitypayforward':
                     await self.parse_subscription(prs, line)
                 case 'subgift' | 'anonsubgift' | 'submysterygift' | 'giftpaidupgrade' | 'anongiftpaidupgrade':
                     await self.parse_subscription(prs, line)
@@ -515,8 +517,7 @@ class Session(object):
             await self.call_listeners('clearmsg', ctx=prs)
 
         # else:
-        #     log.debug(line)
-            # log.debug(f'THE FOLLOWING IS NOT BEING HANDLED:\n{line}')
+        #     log.debug(f'THE FOLLOWING IS NOT BEING HANDLED:\n{line}')
 
     def receive(self) -> None:  # I've compressed the shit outta this code
         for line in self.sock.recv(16384).decode('utf-8', 'replace').split("\r\n")[:-1]:
