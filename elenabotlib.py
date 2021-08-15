@@ -243,7 +243,7 @@ class Session(object):
                         # line = msg.data[:-len('\r\n')]  # remove carriage return and newline
                         for line in msg.data.split("\r\n")[:-1]:  # ?!?
                             await self.parse(line)
-                            await self.ping(line)
+                            # await self.ping(line)
                     else:
                         log.debug(f'Unknown WSMessage Type: {msg.type}')
                 log.info('WebSocket has been closed!')
@@ -285,13 +285,13 @@ class Session(object):
             log.info(f'Left {c}')
             await self.call_listeners('part_self', channel=c)
 
-    async def pong(self) -> None:
-        await self.socksend("PONG :tmi.twitch.tv")
-        # log.debug('Server sent PING. We sent PONG.')
+    # async def pong(self) -> None:
+    #     await self.socksend("PONG :tmi.twitch.tv")
+    #     # log.debug('Server sent PING. We sent PONG.')
 
-    async def ping(self, line: str) -> None:
-        if line == "PING :tmi.twitch.tv":
-            await self.pong()
+    # async def ping(self, line: str) -> None:
+    #     if line == "PING :tmi.twitch.tv":
+    #         await self.pong()
 
     def cast(self, dclass, data) -> dict:
         items = {}
@@ -438,7 +438,11 @@ class Session(object):
         await self.call_listeners('raid', ctx=prs)
 
     async def parse(self, line: str) -> None:  # use an elif chain or match case (maybeeee down the line)
-        if 'PRIVMSG' in line and line[0] == '@':
+        if line == 'PING :tmi.twitch.tv':
+            await self.socksend("PONG :tmi.twitch.tv")
+            # log.debug('Server sent PING. We sent PONG.')
+
+        elif 'PRIVMSG' in line and line[0] == '@':
             prs = self.create_prs(PRIVMSG, line)
             self.parse_privmsg(prs, line)
             self.format_display_name(prs)
@@ -516,12 +520,24 @@ class Session(object):
 
             await self.call_listeners('clearmsg', ctx=prs)
 
+        elif 'HOSTTARGET' in line and line[0] == ':':
+            pass
+
         elif re.search(r"[.:]tmi\.twitch\.tv [0-9]+ " + self.nick + r" [#:=]", line):
             # log.debug(line)
             await self.glhf_auth(line)
 
-        # else:
-        #     log.debug(f'THE FOLLOWING IS NOT BEING HANDLED:\n{line}')
+        elif ':tmi.twitch.tv CAP * ACK :twitch.tv/' in line:
+            pass
+
+        elif 'JOIN' in line and line[0] == ':':
+            pass
+
+        elif 'PART' in line and line[0] == ':':
+            pass
+
+        else:
+            log.debug(f'THE FOLLOWING IS NOT BEING HANDLED:\n{line}')
 
     async def glhf_auth(self, line):
         ident = re.search(r"[.:]tmi\.twitch\.tv ([0-9]+) " + self.nick + r" [#:=]", line).group(1)
@@ -537,10 +553,10 @@ class Session(object):
         # log.debug(ident)
         # pass
 
-    def receive(self) -> None:  # I've compressed the shit outta this code
-        for line in self.sock.recv(16384).decode('utf-8', 'replace').split("\r\n")[:-1]:
-            self.parse(line)
-            self.ping(line)
+    # def receive(self) -> None:  # I've compressed the shit outta this code
+    #     for line in self.sock.recv(16384).decode('utf-8', 'replace').split("\r\n")[:-1]:
+    #         self.parse(line)
+    #         self.ping(line)
         # data = self.sock.recv(16384).decode('utf-8', 'replace').split("\r\n")[:-1]
         # data = self.sock.recv(2**14).decode('utf-8', 'replace').split("\r\n")[:-1]
         # iter_log = True
