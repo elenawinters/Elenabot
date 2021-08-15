@@ -229,7 +229,8 @@ class Session(object):
 
         self.loop = asyncio.get_event_loop()
 
-        ws_timeout = aiohttp.ClientTimeout(total=86400)  # 1 day
+        # ws_timeout = aiohttp.ClientTimeout(total=86400)  # 1 day
+        ws_timeout = aiohttp.ClientTimeout(total=21600)  # 6 hours
         # ws_timeout = aiohttp.ClientTimeout(total=60)  # 1 minute
 
         async def wsloop():
@@ -260,16 +261,11 @@ class Session(object):
 
     async def connect(self) -> None:
         log.debug(f'Attempting to connect to {self.host}:{self.port}')
-        try:
-            await self.socksend(f"PASS {self.token}")
-            await self.socksend(f"NICK {self.nick}")
-            await self.socksend("CAP REQ :twitch.tv/tags")
-            await self.socksend("CAP REQ :twitch.tv/membership")
-            await self.socksend("CAP REQ :twitch.tv/commands")
-        except Exception as exc:
-            log.exception(f'Error occured while connecting to WebSocket: ', exc_info=exc)
-        else:
-            log.info('Connected')
+        await self.socksend(f"PASS {self.token}")
+        await self.socksend(f"NICK {self.nick}")
+        await self.socksend("CAP REQ :twitch.tv/tags")
+        await self.socksend("CAP REQ :twitch.tv/membership")
+        await self.socksend("CAP REQ :twitch.tv/commands")
 
     async def join(self, channels: Union[list, str]) -> None:
         channels = channels if type(list) else list(channels)
@@ -520,8 +516,26 @@ class Session(object):
 
             await self.call_listeners('clearmsg', ctx=prs)
 
+        elif re.search(r"[.:]tmi\.twitch\.tv [0-9]+ " + self.nick + r" [#:=]", line):
+            # log.debug(line)
+            await self.glhf_auth(line)
+
         # else:
         #     log.debug(f'THE FOLLOWING IS NOT BEING HANDLED:\n{line}')
+
+    async def glhf_auth(self, line):
+        ident = re.search(r"[.:]tmi\.twitch\.tv ([0-9]+) " + self.nick + r" [#:=]", line).group(1)
+        # ident = re.search(r"tmi\.twitch\.tv ([0-9]+) " + f'{self.nick} ', line).group(1)
+        match int(ident):
+            case 1 | 2 | 3 | 4 | 372 | 376 | 353 | 366:  # Welcome, GLHF!
+                pass
+            case 375:
+                log.info('Connected!')
+            case _:  # unhandled ident
+                log.debug(f'ID {ident} is not being handled!\n{line}')
+
+        # log.debug(ident)
+        # pass
 
     def receive(self) -> None:  # I've compressed the shit outta this code
         for line in self.sock.recv(16384).decode('utf-8', 'replace').split("\r\n")[:-1]:
