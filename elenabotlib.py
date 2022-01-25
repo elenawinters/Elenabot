@@ -211,7 +211,19 @@ def add_listener(func, name='any') -> None:
     else:
         _listeners[name].append(func)
 
-    log.debug(f'Added {func.__name__} to {name} handler.')
+    """
+        There used to be a logger here, but it's rather finicky.
+        If this program is wrapped, and then that wrapper is wrapped, the logs would appear.
+        If the program is single wrapped, the log messages would NOT appear.
+        The botUI.py would log, but the bot.py would not.
+
+        The listeners appended also reference the function right after the event is registered.
+        So, an @event followed by an @message would show the wrapper function inside the message decorator function.
+        But, a single @event would show the actual function.
+
+        The log call has been removed because of these reasons.
+        You can call `len(_listeners)` to get the number of registered events.
+    """
 
 
 class Session(object):
@@ -232,8 +244,7 @@ class Session(object):
         # ws_timeout = aiohttp.ClientTimeout(total=60)  # 1 minute
 
         async def wsloop():
-            async with aiohttp.ClientSession(timeout=ws_timeout).ws_connect(f'{self.host}:{self.port}') as ws:
-                self.sock = ws
+            async with aiohttp.ClientSession(timeout=ws_timeout).ws_connect(f'{self.host}:{self.port}') as self.sock:
                 await self.connect()
                 await self.join(channels)
                 async for msg in self.sock:
@@ -439,15 +450,14 @@ class Session(object):
     async def parse(self, line: str) -> None:  # use an elif chain or match case (maybeeee down the line)
         if line == 'PING :tmi.twitch.tv':
             await self.socksend("PONG :tmi.twitch.tv")
-            # log.debug('Server sent PING. We sent PONG.')
+            if __debug__:
+                log.debug('Server sent PING. We sent PONG.')
 
         elif 'PRIVMSG' in line and line[0] == '@':
             prs = self.create_prs(PRIVMSG, line)
             self.parse_privmsg(prs, line)
             self.format_display_name(prs)
             self.parse_action(prs)
-
-            # log.debug(f'{prs.display_name} and {prs.message.author}')
 
             await self.call_listeners('message', ctx=prs)
 
@@ -544,29 +554,10 @@ class Session(object):
         match int(ident):
             case 1 | 2 | 3 | 4 | 372 | 376 | 353 | 366:  # Welcome, GLHF!
                 pass
-            case 375:
-                log.info('Connected!')
+            case 375:  # this is the connected response now
+                log.info(f"Connected! Environment is {'DEBUG' if __debug__ else 'PRODUCTION'}.")
             case _:  # unhandled ident
                 log.debug(f'ID {ident} is not being handled!\n{line}')
-
-        # log.debug(ident)
-        # pass
-
-    # def receive(self) -> None:  # I've compressed the shit outta this code
-    #     for line in self.sock.recv(16384).decode('utf-8', 'replace').split("\r\n")[:-1]:
-    #         self.parse(line)
-    #         self.ping(line)
-        # data = self.sock.recv(16384).decode('utf-8', 'replace').split("\r\n")[:-1]
-        # data = self.sock.recv(2**14).decode('utf-8', 'replace').split("\r\n")[:-1]
-        # iter_log = True
-        # for line in data:
-        #     self.parse(line)
-        #     if not line.startswith('@') and iter_log:
-        #         iter_log = False
-        #         log.debug(line)
-        #         log.debug(self.last)
-        #     self.ping(line)
-        # self.last = data
 
     async def _lcall(self, event: str, **kwargs):
         if event not in _listeners:
