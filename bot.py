@@ -5,68 +5,12 @@ import configparser
 import random
 
 
-@dataclass
-class LangFilterResult:
-    words: list
-    exceptions: list
-    count: int
-
-
-class LangFilter:
-    def __init__(self, message):
-        self.message = message
+class StatTracker:
+    def __init__(self, ctx):
+        self.ctx = ctx
 
     def process(self):
-        ematches = []
-        matches = []
-        ecount = 0
-        count = 0
-
-        with open('words.txt', 'r') as file:
-            wdat = file.read().split(',')
-
-        for word in wdat:
-            _c = self.message.count(word)
-            # print(_c)
-            if _c > 0:
-                matches.append(word)
-                count += _c
-
-        with open('exceptions.txt', 'r') as file:
-            edat = file.read().split(',')
-
-        for exc in edat:
-            _c = self.message.count(exc)
-            if _c > 0:
-                ematches.append(exc)
-                ecount += _c
-
-        print(matches)
-        print(ematches)
-        # # TODO: Filter out matches if an exception was found
-        # _rem = []
-        # for ematc in ematches:
-        #     for matc in matches:
-        #         if matc in ematc:
-        #             _rem.append(matc)
-
-        # print(_rem)
-
-        _rem = [tuple((matc, ematc)) for matc in matches for ematc in ematches if matc in ematc]  # see what matched to what
-        # _rem = [x for x in _rem if _rem[x][1] == ]
-        print(_rem)
-
-        # _rem = [tuple(matc, ematc) for matc in matches for ematc in ematches if matc in ematc]
-        # if _rem:
-        #     print(_rem)
-        # else:
-        #     print('rem is empty')
-
-        # for phrase in fury.execute("SELECT phrase FROM swear WHERE serverid = ?", (serverid, )):
-        #     offenceTime += msg.count('{}'.format(phrase[0]))
-        #     if msg.count('{}'.format(phrase[0])) > 0:
-        #         swears += '{}, '.format(phrase[0])
-        # return offenceTime, swears
+        pass
 
 
 class Elenabot(Session):
@@ -91,12 +35,9 @@ class Elenabot(Session):
 
         self.start(config['twitch']['oauth'], config['twitch']['nickname'], channels)
 
-    # @event('message')
-    # @message('!quit', 'sw', False)
-    # async def bot_suicide_pill(self, ctx: Messageable):
-    #     ctx.send('Elenabot is shutting down')
-    #     log.debug(ctx)
-    #     self.shutdown()
+    @event('message')  # STAT TRACKER
+    async def track_stats(self, ctx: Messageable):
+        StatTracker(ctx).process()
 
     @event('ritual:new_chatter')
     async def new_zaqpaq_chatter(self, ctx: RITUAL):
@@ -105,7 +46,7 @@ class Elenabot(Session):
     @event('anysub')
     @cooldown(5)  # 5 second cooldown
     async def on_zaq_sub(self, ctx: Messageable):
-        await ctx.send(f"{self.maximize_msg('zaqHeart zaqCool ', random.randint(50, 100))}zaqHeart")  # len 17
+        await ctx.send(f"{self.maximize_msg('zaqHeart zaqWiggle ', random.randint(50, 100))}zaqHeart")  # len 17
         log.debug(ctx)
 
     @event('raid')
@@ -132,6 +73,18 @@ class Elenabot(Session):
     @cooldown(90)
     async def zaq_is_pog(self, ctx: Messageable):
         await ctx.send('catJAM')
+
+    @event('message')
+    @message('zaqWiggle', 'in')
+    @cooldown(90)
+    async def zaq_is_pog(self, ctx: Messageable):
+        await ctx.send('zaqWiggle')
+
+    @event('message')
+    @message('zaqBS', 'in')
+    @cooldown(90)
+    async def zaq_butt_stuff(self, ctx: Messageable):
+        await ctx.send('zaqBS')
 
     @event('message')
     @message('zaqCool', 'in')
@@ -169,11 +122,11 @@ class Elenabot(Session):
     async def good_shit_hayes(self, ctx: Messageable):
         await ctx.send('zaqHayes')
 
-    @event('message')
-    @message('cowDance', 'in')
-    @cooldown(120)
-    async def cow_dance(self, ctx: Messageable):
-        await ctx.send('cowDance')
+    # @event('message')
+    # @message('cowDance', 'in')
+    # @cooldown(120)
+    # async def cow_dance(self, ctx: Messageable):
+    #     await ctx.send('cowDance')
 
     @event('message')
     @message('MLADY')
@@ -190,8 +143,8 @@ class Elenabot(Session):
     @event('message')
     @message('!ping', 'sw')
     async def lol_you_thought(self, ctx: Messageable):
-        pick = ["I may be a bot but you can't just ping me like that GooseKnife", 'Gimme your fingers GooseKnife',
-                f"c'mere {ctx.display_name} GooseKnife", 'ping me daddy zaqLewd', "i've been pinged AYAYA"]
+        pick = ["I may be a bot but you can't just ping me like that zaqK", 'Gimme your fingers zaqK',
+                f"c'mere {ctx.display_name} zaqK", 'ping me daddy zaqLewd', "i've been pinged AYAYA"]
         await ctx.send(random.choice(pick))
 
     @event('message')
@@ -213,6 +166,12 @@ class Elenabot(Session):
         await ctx.send('zaqT')
 
     @event('message')
+    @author('nightbot')
+    @message('Zaquelle is afk zaqPls so the raccoons can dance away zaqPls and with a smirk zaqPls the chat will lurk zaqPls when Zaq comes back to play zaqLurk')
+    async def zaq_is_afk(self, ctx: Messageable):
+        await ctx.send('Zaquelle is afk zaqPls so the raccoons can dance away zaqPls and with a smirk zaqPls the chat will lurk zaqPls when Zaq comes back to play zaqLurk')
+
+    @event('message')
     @author('oythebrave')
     @message('This zaq is good')
     async def zaq_is_good(self, ctx: Messageable):
@@ -229,6 +188,18 @@ class Elenabot(Session):
     @message('zaqPop', 'in')
     async def zaq_nom(self, ctx: Messageable):
         await ctx.send('zaqPop')
+
+    @event('message')
+    @cooldown(60)
+    @message('zaqCA', 'in')
+    async def zaq_coppa(self, ctx: Messageable):
+        await ctx.send('zaqCA')
+
+    @event('message')
+    @author('streamlabs')
+    @message('A !raffle raffle has started for Viewers use !raffle to enter the raffle.', 'in')
+    async def raffle_start(self, ctx: Messageable):
+        await ctx.send('!raffle')
 
     # @event('message')
     # @author('dwingert')

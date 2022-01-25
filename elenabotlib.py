@@ -227,8 +227,6 @@ class Session(object):
         self.token = token
         self.nick = nick
 
-        self.loop = asyncio.get_event_loop()
-
         # ws_timeout = aiohttp.ClientTimeout(total=86400)  # 1 day
         ws_timeout = aiohttp.ClientTimeout(total=21600)  # 6 hours
         # ws_timeout = aiohttp.ClientTimeout(total=60)  # 1 minute
@@ -252,7 +250,8 @@ class Session(object):
 
         while True:  # this loops over the aiohttp code
             try:
-                self.loop.run_until_complete(wsloop())
+                # self.loop.run_until_complete(wsloop())
+                asyncio.run(wsloop())
             except Exception as exc:
                 log.exception(exc)
 

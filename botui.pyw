@@ -243,23 +243,23 @@ class Elenabot:
                 cls.start(oauth, nickname, channels)
 
             @event('join_self')
-            def on_bot_join_channel(cls, channel):
+            async def on_bot_join_channel(cls, channel):
                 if channel not in self.tabs:
                     self.add_tab(channel)
 
             @event('part_self')
-            def on_bot_part_channel(cls, channel):
+            async def on_bot_part_channel(cls, channel):
                 if channel in self.tabs:
                     self.destroy_tab(channel)
 
             @event('message')  # https://stackoverflow.com/a/34769569/14125122
-            def on_message_sent(cls, ctx):
+            async def on_message_sent(cls, ctx):
                 to_insert = f'{ctx.message.author}: {ctx.message.content}\n'
                 self.update_messages_widget(to_insert, ctx.message.channel)
                 # log.debug(f'{ctx.message.channel}: Line Count: {line_count}; Scrollbar Line: {scroll_line}; Difference: {diff}')
 
             @event('userstate')
-            def set_userstate_channel(cls, ctx):
+            async def set_userstate_channel(cls, ctx):
                 self.check_schedule(ctx)
 
             # @event('notice')
