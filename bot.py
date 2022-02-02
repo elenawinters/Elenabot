@@ -90,7 +90,7 @@ class Elenabot(Session):
 
         @event('anysub')
         @cooldown(5)  # 5 second cooldown
-        async def on_zaq_sub(self, ctx: PRIVMSG):
+        async def on_zaq_sub(self, ctx: SUBSCRIPTION):
             await ctx.send(f"{self.maximize_msg('zaqHeart zaqWiggle ', random.randint(50, 100))}zaqHeart")  # len 17
             log.debug(ctx)
 
