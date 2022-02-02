@@ -17,7 +17,7 @@ Python has optimization flags suprisingly. There are 2 of them
 - The -O flag (O1)
     This tells the interpreter/compiler to replace `__debug__` with 0, and to ignore assertions.
 - The -OO flag (O2)
-    This tells the interpreter/compiler to do that same as O1, and also ignore docstrings.
+    This does the same as O1, and also ignores docstrings.
 
 This project uses debug flags and docstrings. It is recommended you use -OO so that these are ignored in production environments
 
