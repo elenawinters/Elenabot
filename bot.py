@@ -55,7 +55,7 @@ class Elenabot(Session):
         #         await self.join([name])
 
         # @event('message')  # STAT TRACKER
-        # async def track_stats(self, ctx: Messageable):
+        # async def track_stats(self, ctx: PRIVMSG):
         #     log.info(ctx)
         #     # StatTracker(ctx).process()
 
@@ -73,13 +73,13 @@ class Elenabot(Session):
         #     log.info(ctx)
 
         # @event('anysub')
-        # async def on_sub_debug(self, ctx: Messageable):
+        # async def on_sub_debug(self, ctx: PRIVMSG):
         #     log.debug(ctx)
 
     else:
         # @event('message')
         # @message('!quit', 'sw', False)
-        # async def bot_suicide_pill(self, ctx: Messageable):
+        # async def bot_suicide_pill(self, ctx: PRIVMSG):
         #     ctx.send('Elenabot is shutting down')
         #     log.debug(ctx)
         #     self.shutdown()
@@ -90,112 +90,109 @@ class Elenabot(Session):
 
         @event('anysub')
         @cooldown(5)  # 5 second cooldown
-        async def on_zaq_sub(self, ctx: Messageable):
+        async def on_zaq_sub(self, ctx: PRIVMSG):
             await ctx.send(f"{self.maximize_msg('zaqHeart zaqWiggle ', random.randint(50, 100))}zaqHeart")  # len 17
             log.debug(ctx)
 
         @event('raid')
         async def on_zaq_raid(self, ctx: RAID):
-            # log.debug('Incoming raid. Prepare for raid message!')
             raid_msg = f"Incoming raid! {ctx.raider} is sending {ctx.viewers} raiders our way! raccPog raccPog raccPog"
-            # log.debug(raid_msg)
             await ctx.send(raid_msg)
-            # log.debug('Attempted to send raid message! Prepare for raid information dump!')
             log.debug(ctx)
 
         @event('message')
         @message('zaqDisco', 'in')
         @cooldown(90)
-        async def zaq_is_disco(self, ctx: Messageable):
+        async def zaq_is_disco(self, ctx: PRIVMSG):
             await ctx.send('zaqDisco')
         
         @event('message')
         @message('POGCRAZY', 'sw')
         @cooldown(45)
-        async def zaq_is_pogcrazy(self, ctx: Messageable):
+        async def zaq_is_pogcrazy(self, ctx: PRIVMSG):
             await ctx.send('POGCRAZY')
 
         @event('message')
         @message('raccPog', 'in')
         @cooldown(90)
-        async def zaq_is_pog(self, ctx: Messageable):
+        async def zaq_is_pog(self, ctx: PRIVMSG):
             await ctx.send('raccPog')
 
         @event('message')
         @message('catJam', 'in')
         @cooldown(90)
-        async def zaq_is_pog(self, ctx: Messageable):
+        async def zaq_is_pog(self, ctx: PRIVMSG):
             await ctx.send('catJam')
 
         @event('message')
         @message('zaqWiggle', 'in')
         @cooldown(90)
-        async def zaq_is_pog(self, ctx: Messageable):
+        async def zaq_is_pog(self, ctx: PRIVMSG):
             await ctx.send('zaqWiggle')
 
         @event('message')
         @message('zaqBS', 'in')
         @cooldown(90)
-        async def zaq_butt_stuff(self, ctx: Messageable):
+        async def zaq_butt_stuff(self, ctx: PRIVMSG):
             await ctx.send('zaqBS')
 
         @event('message')
         @message('zaqCool', 'in')
         @cooldown(120)
-        async def zaq_is_cool(self, ctx: Messageable):
+        async def zaq_is_cool(self, ctx: PRIVMSG):
             await ctx.send('zaqCool')
 
         @event('message')
         @message('Sadge 👑 🐘', 'in')
         @cooldown(60)
-        async def queen_cutie(self, ctx: Messageable):
+        async def queen_cutie(self, ctx: PRIVMSG):
             await ctx.send('Sadge 👑 🐘')
 
         @event('message')
         @message('COPIUM', 'in')
         @cooldown(60)
-        async def copium(self, ctx: Messageable):
+        async def copium(self, ctx: PRIVMSG):
             await ctx.send('COPIUM')
 
         @event('message')
         @message('AYAYA', 'in')
         @cooldown(60)
-        async def ayaya(self, ctx: Messageable):
+        async def ayaya(self, ctx: PRIVMSG):
             await ctx.send('AYAYA')
 
         @event('message')
         @message('pepeSmoke', 'in')
         @cooldown(120)
-        async def smoke_hayes_smoke(self, ctx: Messageable):
+        async def smoke_hayes_smoke(self, ctx: PRIVMSG):
             await ctx.send('pepeSmoke')
 
         @event('message')
         @message('zaqHayes', 'in')
         @cooldown(60)
-        async def good_shit_hayes(self, ctx: Messageable):
+        async def good_shit_hayes(self, ctx: PRIVMSG):
             await ctx.send('zaqHayes')
 
         # @event('message')
         # @message('cowDance', 'in')
         # @cooldown(120)
-        # async def cow_dance(self, ctx: Messageable):
+        # async def cow_dance(self, ctx: PRIVMSG):
         #     await ctx.send('cowDance')
 
         @event('message')
         @message('MLADY')
         @cooldown(60)
-        async def mlady(self, ctx: Messageable):
+        async def mlady(self, ctx: PRIVMSG):
             await ctx.send('MLADY')
 
         @event('message')
         @author('richardharrow_')
         @message('ppHopAround')
-        async def ppHopAround(self, ctx: Messageable):
+        async def ppHopAround(self, ctx: PRIVMSG):
             await ctx.send('ppHopAround')
 
         @event('message')
         @message('!ping', 'sw')
-        async def lol_you_thought(self, ctx: Messageable):
+        async def lol_you_thought(self, ctx: PRIVMSG):
             pick = ["I may be a bot but you can't just ping me like that zaqK", 'Gimme your fingers zaqK',
                     f"c'mere {ctx.display_name} zaqK", 'ping me daddy zaqLewd', "i've been pinged AYAYA"]
             await ctx.send(random.choice(pick))
@@ -203,68 +200,68 @@ class Elenabot(Session):
         @event('message')
         @author('nightbot')
         @message('Zaquelle has summoned her inner Wookie', 'sw')
-        async def wookie(self, ctx: Messageable):
+        async def wookie(self, ctx: PRIVMSG):
             await ctx.send('zaqWookie')
 
         @event('message')
         @author('oythebrave')
         @message('brb gotta pee')
-        async def oys_gotta_pee(self, ctx: Messageable):
+        async def oys_gotta_pee(self, ctx: PRIVMSG):
             await ctx.send('ok')
 
         @event('message')
         @author('oythebrave')
         @message('FeelsHayesMan Glizzy')
         @cooldown(60)
-        async def hayes_feels_glizzy_man(self, ctx: Messageable):
+        async def hayes_feels_glizzy_man(self, ctx: PRIVMSG):
             await ctx.send('FeelsHayesMan Glizzy')
 
         @event('message')
         @author('nightbot')
         @message('zaqT THIS IS YOUR REMINDER TO DRINK WATER OR SOME SORT OF LIQUID BECAUSE YOUR BODY NEEDS IT AND SHIT zaqT')
-        async def drink_water_zaq(self, ctx: Messageable):
+        async def drink_water_zaq(self, ctx: PRIVMSG):
             await ctx.send('zaqT')
 
         @event('message')
         @author('nightbot')
         @message('Zaquelle is afk zaqPls so the raccoons can dance away zaqPls and with a smirk zaqPls the chat will lurk zaqPls when Zaq comes back to play zaqLurk')
-        async def zaq_is_afk(self, ctx: Messageable):
+        async def zaq_is_afk(self, ctx: PRIVMSG):
             await ctx.send('Zaquelle is afk zaqPls so the raccoons can dance away zaqPls and with a smirk zaqPls the chat will lurk zaqPls when Zaq comes back to play zaqLurk')
 
         @event('message')
         @author('oythebrave')
         @message('This zaq is good')
-        async def zaq_is_good(self, ctx: Messageable):
+        async def zaq_is_good(self, ctx: PRIVMSG):
             await ctx.send('NODDERS')
 
         @event('message')
         @author('oythebrave')
         @message('zaqNOM')
-        async def zaq_nom(self, ctx: Messageable):
+        async def zaq_nom(self, ctx: PRIVMSG):
             await ctx.send('zaqPop')
 
         @event('message')
         @cooldown(60)
         @message('zaqPop', 'in')
-        async def zaq_nom(self, ctx: Messageable):
+        async def zaq_nom(self, ctx: PRIVMSG):
             await ctx.send('zaqPop')
 
         @event('message')
         @cooldown(60)
         @message('zaqCA', 'in')
-        async def zaq_coppa(self, ctx: Messageable):
+        async def zaq_coppa(self, ctx: PRIVMSG):
             await ctx.send('zaqCA')
 
         @event('message')
         @author('streamlabs')
         @message('A !raffle raffle has started for Viewers use !raffle to enter the raffle.', 'in')
-        async def raffle_start(self, ctx: Messageable):
+        async def raffle_start(self, ctx: PRIVMSG):
             await ctx.send('!raffle')
 
         # @event('message')
         # @author('dwingert')
         # @message('Did ya know', 'sw')
-        # def dwin_did_you_know(self, ctx: Messageable):
+        # def dwin_did_you_know(self, ctx: PRIVMSG):
         #     ctx.send("did ya know that dwin deleted all the facts?")
         #     # ctx.send("did you know that y'all are cute paq")
         #     # pick = ["did you know that y'all are cute paq", 'did you know that dwin deleted all the facts',
