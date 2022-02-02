@@ -242,10 +242,10 @@ class Elenabot:
                 self.cls = cls  # unknown consequences
                 cls.start(oauth, nickname, channels)
 
-            @event('join_self')
-            async def on_bot_join_channel(cls, channel):
-                if channel not in self.tabs:
-                    self.add_tab(channel)
+            @event('roomstate')
+            async def on_bot_join_channel(cls, ctx):
+                if ctx.channel not in self.tabs:
+                    self.add_tab(ctx.channel)
 
             @event('part_self')
             async def on_bot_part_channel(cls, channel):

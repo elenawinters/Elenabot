@@ -1,4 +1,3 @@
-from dataclasses import dataclass
 from elenabotlib import *
 import sys, os, ast
 import configparser
@@ -32,15 +31,59 @@ class Elenabot(Session):
             config.read(config_file)
 
         channels = ast.literal_eval(config['twitch']['channels'])
+        # import gen_stream_list
+        # channels = gen_stream_list.ActiveHasroot('nopixel')
+        # channels = gen_stream_list.ActiveHasroot('gtarp')
 
         self.start(config['twitch']['oauth'], config['twitch']['nickname'], channels)
 
     if __debug__:
-        @event('message')  # STAT TRACKER
-        async def track_stats(self, ctx: Messageable):
-            StatTracker(ctx).process()
+        @event('join')
+        async def join_debug(self, ctx: JOIN):
+            log.info(ctx)
+
+        @event('part')
+        async def part_debug(self, ctx: PART):
+            log.info(ctx)
+
+        # @event('roomstate')  # this was experimental code from before i added smartjoin
+        # async def mass_join(self, ctx: ROOMSTATE):
+        #     await asyncio.sleep(0.55)
+        #     if self.megaindex < len(megachannels):
+        #         name = megachannels[self.megaindex]
+        #         self.megaindex += 1
+        #         await self.join([name])
+
+        # @event('message')  # STAT TRACKER
+        # async def track_stats(self, ctx: Messageable):
+        #     log.info(ctx)
+        #     # StatTracker(ctx).process()
+
+        # @event('host')
+        # async def on_host_debug(self, ctx: HOSTTARGET):
+        #     log.info(ctx)
+            # await self.part(ctx.channel)
+            # await self.join(ctx.target)
+
+        # @event('raid')
+        # async def on_raid_debug(self, ctx: RAID):
+        #     # if ctx.message.author in self.channels:
+        #     #     await self.part(ctx.message.author)
+
+        #     log.info(ctx)
+
+        # @event('anysub')
+        # async def on_sub_debug(self, ctx: Messageable):
+        #     log.debug(ctx)
 
     else:
+        # @event('message')
+        # @message('!quit', 'sw', False)
+        # async def bot_suicide_pill(self, ctx: Messageable):
+        #     ctx.send('Elenabot is shutting down')
+        #     log.debug(ctx)
+        #     self.shutdown()
+
         @event('ritual:new_chatter')
         async def new_zaqpaq_chatter(self, ctx: RITUAL):
             await ctx.send(f"raccPog raccPog raccPog Welcome {ctx.message.author} to the ZaqPaq! raccPog raccPog raccPog")
@@ -52,10 +95,12 @@ class Elenabot(Session):
             log.debug(ctx)
 
         @event('raid')
-        async def on_zaq_raid(self, ctx: Messageable):
-            raid_msg = self.maximize_msg('zaqVA ', random.randint(50, 100))
-            log.debug(raid_msg)
+        async def on_zaq_raid(self, ctx: RAID):
+            # log.debug('Incoming raid. Prepare for raid message!')
+            raid_msg = f"Incoming raid! {ctx.raider} is sending {ctx.viewers} raiders our way! raccPog raccPog raccPog"
+            # log.debug(raid_msg)
             await ctx.send(raid_msg)
+            # log.debug('Attempted to send raid message! Prepare for raid information dump!')
             log.debug(ctx)
 
         @event('message')
@@ -63,6 +108,12 @@ class Elenabot(Session):
         @cooldown(90)
         async def zaq_is_disco(self, ctx: Messageable):
             await ctx.send('zaqDisco')
+        
+        @event('message')
+        @message('POGCRAZY', 'sw')
+        @cooldown(45)
+        async def zaq_is_pogcrazy(self, ctx: Messageable):
+            await ctx.send('POGCRAZY')
 
         @event('message')
         @message('raccPog', 'in')
@@ -71,10 +122,10 @@ class Elenabot(Session):
             await ctx.send('raccPog')
 
         @event('message')
-        @message('catJAM', 'in')
+        @message('catJam', 'in')
         @cooldown(90)
         async def zaq_is_pog(self, ctx: Messageable):
-            await ctx.send('catJAM')
+            await ctx.send('catJam')
 
         @event('message')
         @message('zaqWiggle', 'in')
@@ -160,6 +211,13 @@ class Elenabot(Session):
         @message('brb gotta pee')
         async def oys_gotta_pee(self, ctx: Messageable):
             await ctx.send('ok')
+
+        @event('message')
+        @author('oythebrave')
+        @message('FeelsHayesMan Glizzy')
+        @cooldown(60)
+        async def hayes_feels_glizzy_man(self, ctx: Messageable):
+            await ctx.send('FeelsHayesMan Glizzy')
 
         @event('message')
         @author('nightbot')

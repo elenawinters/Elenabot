@@ -105,6 +105,25 @@ class PRIVMSG(USERSTATE):
 
 
 @dataclass
+class HOSTTARGET:
+    channel: str = None
+    target: str = None
+    viewers: int = 0
+
+
+@dataclass
+class JOIN:  # join and part are the same struct, but for readability, they are seperated
+    channel: str = None
+    user: str = None
+
+
+@dataclass
+class PART:
+    channel: str = None
+    user: str = None
+
+
+@dataclass
 class USERNOTICEBASE(PRIVMSG):  # this is the baseclass for USERNOTICE. used by the subclasses
     system_msg: str = None
     msg_id: str = None
@@ -246,7 +265,7 @@ class Session(object):
         async def wsloop():
             async with aiohttp.ClientSession(timeout=ws_timeout).ws_connect(f'{self.host}:{self.port}') as self.sock:
                 await self.connect()
-                await self.join(channels)
+                await self.smartjoin(channels)
                 async for msg in self.sock:
                     if msg.type == aiohttp.WSMsgType.TEXT:
                         # line = msg.data[:-len('\r\n')]  # remove carriage return and newline
@@ -277,23 +296,50 @@ class Session(object):
         await self.socksend("CAP REQ :twitch.tv/membership")
         await self.socksend("CAP REQ :twitch.tv/commands")
 
-    async def join(self, channels: Union[list, str]) -> None:
-        channels = channels if type(list) else list(channels)
-        self.channels.append(channels)
-        for x in channels:
-            c = x.lower() if x[0] == '#' else f'#{x.lower()}'
-            await self.socksend(f"JOIN {c}")
-            log.info(f'Joined {c}')
-            await self.call_listeners('join_self', channel=c)
+    # TODO: Make sure secondary join calls don't cause a rate limit ban
+    async def smartjoin(self, channels: Union[list, str]):
+        chans = []
+        if isinstance(channels, str):
+            chans.append(channels)
+        if chans: channels = chans
+
+        # channels = channels if type(list) else [channels]
+        channels = [chan for chan in channels if chan not in self.channels]
+        if not channels: return
+        for chan in channels:
+            self.channels.append(chan)
+
+        log.info(f'Channels have been registered! Joining {len(channels)} channel(s)!')
+
+        loop = asyncio.get_running_loop()
+
+        for x in range(len(channels)):
+            loop.call_later(0.55 * (x + 1), asyncio.create_task, self._join(channels[x]))
+
+        return
+
+    async def join(self, channels: Union[list, str]):  # this is an alias
+        return await self.smartjoin(channels)
+
+    async def _join(self, channel: str) -> None:
+        c = channel.lower() if channel[0] == '#' else f'#{channel.lower()}'
+        await self.socksend(f"JOIN {c}")
+        log.info(f'Joined {c}')
 
     async def part(self, channels: Union[list, str]) -> None:  # this is currently untested
-        channels = channels if type(list) else list(channels)
-        self.channels.remove(channels)
+        chans = []
+        if isinstance(channels, str):
+            chans.append(channels)
+        if chans: channels = chans
+        # channels = channels if type(list) else [channels]
+        channels = [chan for chan in channels if chan in self.channels]
+        if not channels: return
+        for chan in channels:
+            self.channels.remove(chan)
         for x in channels:
             c = x.lower() if x[0] == '#' else f'#{x.lower()}'
             await self.socksend(f"PART {c}")
             log.info(f'Left {c}')
-            await self.call_listeners('part_self', channel=c)
 
     # async def pong(self) -> None:
     #     await self.socksend("PONG :tmi.twitch.tv")
@@ -303,7 +349,7 @@ class Session(object):
     #     if line == "PING :tmi.twitch.tv":
     #         await self.pong()
 
-    def cast(self, dclass, data) -> dict:
+    def cast(self, dclass, data) -> dict:  # this populates nested dataclasses with default values
         items = {}
         if not hasattr(dclass, '__annotations__'):
             return {}  # return if not dataclass
@@ -360,20 +406,32 @@ class Session(object):
         return re.search(f'{class_name} ' + r"(#[a-zA-Z0-9-_\w]+)", line).group(1)
 
     def proxy_send_obj(self, prs: Messageable, channel: str):
-        async def _send_proxy(message: str):  # construct send function that can be called from ctx
+        async def _send_proxy(message: str):  # construct send function that can be called from ctx)
             await self.send(message, channel)
         prs.send = _send_proxy
 
-    def parse_privmsg(self, prs: Messageable, line: str, oprs: Messageable = None) -> None:  # user regex provided by RingoMär <3
-        class_name = type(oprs).__name__ if oprs else type(prs).__name__  # basically only for the usernotice subcalls
+    def parse_user(self, line):
         try:
             user = re.search(r":([a-zA-Z0-9-_\w]+)!([a-zA-Z0-9-_\w]+)@([a-zA-Z0-9-_\w]+)", line).group(1)
         except AttributeError:
             user = "Anon"
+        return user
 
-        channel = self.parse_channel(class_name, line)
+    def parse_msg(self, clname, channel: str, line: str):
+        class_name = clname if isinstance(clname, str) else type(clname).__name__
         msg = re.search(f'{class_name} {channel}' + r'..(.*)', line)
         if msg: msg = msg.group(1)
+        return msg
+
+    def parse_privmsg(self, prs: Messageable, line: str, oprs: Messageable = None) -> None:  # user regex provided by RingoMär <3
+        class_name = type(oprs).__name__ if oprs else type(prs).__name__  # basically only for the usernotice subcalls
+
+        user = self.parse_user(line)
+
+        channel = self.parse_channel(class_name, line)
+        msg = self.parse_msg(class_name, channel, line)
+        # msg = re.search(f'{class_name} {channel}' + r'..(.*)', line)
+        # if msg: msg = msg.group(1)
 
         prs.message = Message(user, channel, msg)
 
@@ -439,11 +497,16 @@ class Session(object):
 
     async def parse_raid(self, oprs: USERNOTICE, line: str) -> None:
         prs = self.create_prs(RAID, line)
+        # log.debug(prs)
         self.parse_privmsg(prs, line, oprs)
+        # log.debug(prs)
         self.format_display_name(prs)
+        # log.debug(prs)
 
         prs.raider = oprs.msg_param_displayName if oprs.msg_param_displayName else oprs.msg_param_login
         prs.viewers = oprs.msg_param_viewerCount
+
+        # log.debug(prs)
 
         await self.call_listeners('raid', ctx=prs)
 
@@ -454,6 +517,7 @@ class Session(object):
                 log.debug('Server sent PING. We sent PONG.')
 
         elif 'PRIVMSG' in line and line[0] == '@':
+            if 'message' not in _listeners: return
             prs = self.create_prs(PRIVMSG, line)
             self.parse_privmsg(prs, line)
             self.format_display_name(prs)
@@ -475,7 +539,7 @@ class Session(object):
             # I don't like having to put subs in multiple cases, but Python does not allow wraparound with SPM.
 
             match prs.msg_id:
-                case 'sub' | 'resub' | 'extendsub' | 'primepaidupgrade' | 'communitypayforward':
+                case 'sub' | 'resub' | 'extendsub' | 'primepaidupgrade' | 'communitypayforward' | 'standardpayforward':
                     await self.parse_subscription(prs, line)
                 case 'subgift' | 'anonsubgift' | 'submysterygift' | 'giftpaidupgrade' | 'anongiftpaidupgrade':
                     await self.parse_subscription(prs, line)
@@ -495,14 +559,16 @@ class Session(object):
             # raise ReconnectReceived('Server sent RECONNECT.')
 
         elif 'ROOMSTATE' in line and line[0] == '@':
+            if 'roomstate' not in _listeners: return
             # log.debug('ROOMSTATE')
             prs = self.create_prs(ROOMSTATE, line)
             prs.channel = self.parse_channel(prs, line)
             self.proxy_send_obj(prs, prs.channel)
             await self.call_listeners('roomstate', ctx=prs)
-            log.info(prs)
+            # log.info(prs)
 
         elif 'USERSTATE' in line and line[0] == '@':
+            if 'userstate' not in _listeners: return
             prs = self.create_prs(USERSTATE, line)
             self.parse_privmsg(prs, line)
             self.format_display_name(prs)
@@ -510,12 +576,14 @@ class Session(object):
             await self.call_listeners('userstate', ctx=prs)
 
         elif 'NOTICE' in line and line[0] == '@':
+            if 'notice' not in _listeners: return
             prs = self.create_prs(NOTICE, line)
             self.parse_privmsg(prs, line)
 
             await self.call_listeners('notice', ctx=prs)
 
         elif 'CLEARCHAT' in line and line[0] == '@':
+            if 'clearchat' not in _listeners: return
             prs = self.create_prs(CLEARCHAT, line)
             self.parse_privmsg(prs, line)
             self.swap_message_order(prs)
@@ -523,14 +591,22 @@ class Session(object):
             await self.call_listeners('clearchat', ctx=prs)
 
         elif 'CLEARMSG' in line and line[0] == '@':
+            if 'clearmsg' not in _listeners: return
             prs = self.create_prs(CLEARMSG, line)
             self.parse_privmsg(prs, line)
             self.format_display_name(prs)
 
             await self.call_listeners('clearmsg', ctx=prs)
 
-        elif 'HOSTTARGET' in line and line[0] == ':':
-            pass
+        elif 'HOSTTARGET' in line and line[0] == ':':  # this is the only time imma make a proper seperate parsing
+            if 'hosttarget' not in _listeners or 'host' not in _listeners: return
+            prs = self.create_prs(HOSTTARGET, line)
+            prs.channel = self.parse_channel(prs, line)
+            prs.target, prs.viewers = self.parse_msg(prs, prs.channel, line).split(' ')
+            prs.target = f'#{prs.target}'
+
+            await self.call_listeners('host', ctx=prs)
+            await self.call_listeners('hosttarget', ctx=prs)
 
         elif re.search(r"[.:]tmi\.twitch\.tv [0-9]+ " + self.nick + r" [#:=]", line):
             # log.debug(line)
@@ -540,10 +616,20 @@ class Session(object):
             pass
 
         elif 'JOIN' in line and line[0] == ':':
-            pass
+            if 'join' not in _listeners: return
+            prs = self.create_prs(JOIN, line)
+            prs.channel = self.parse_channel(prs, line)
+            prs.user = self.parse_user(line)
+
+            await self.call_listeners('join', ctx=prs)
 
         elif 'PART' in line and line[0] == ':':
-            pass
+            if 'part' not in _listeners: return
+            prs = self.create_prs(PART, line)
+            prs.channel = self.parse_channel(prs, line)
+            prs.user = self.parse_user(line)
+
+            await self.call_listeners('part', ctx=prs)
 
         else:
             log.debug(f'THE FOLLOWING IS NOT BEING HANDLED:\n{line}')
@@ -587,7 +673,8 @@ class Session(object):
         return True
 
     async def send(self, message: str, channel: str) -> None:
-        await self.socksend(f'PRIVMSG {channel} :{message}')  # placement of the : is important :zaqPbt:
+        if not __debug__:
+            await self.socksend(f'PRIVMSG {channel} :{message}')  # placement of the : is important :zaqPbt:
 
     def maximize_msg(self, content: str, offset: int = 0) -> str:
         return content * math.trunc((500 - offset) / len(content))  # need to trunc cuz we always round down
