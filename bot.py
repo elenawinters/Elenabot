@@ -30,21 +30,25 @@ class Elenabot(Session):
         else:
             config.read(config_file)
 
-        channels = ast.literal_eval(config['twitch']['channels'])
-        # import gen_stream_list
-        # channels = gen_stream_list.ActiveHasroot('nopixel')
-        # channels = gen_stream_list.ActiveHasroot('gtarp')
+        if __debug__:
+            import gen_stream_list
+            # channels = gen_stream_list.ActiveHasroot('nopixel')
+            # channels = ['zaquelle', 'sixyrp', 'oneprotectivefox']
+            channels = gen_stream_list.ActiveHasroot('gtarp')
+        else:
+            channels = ast.literal_eval(config['twitch']['channels'])
 
         self.start(config['twitch']['oauth'], config['twitch']['nickname'], channels)
 
     if __debug__:
-        @event('join')
+        @event('join:self')
         async def join_debug(self, ctx: JOIN):
-            log.info(ctx)
+            if ctx.channel == '#zaquelle':
+                await self.sock.close()
 
-        @event('part')
-        async def part_debug(self, ctx: PART):
-            log.info(ctx)
+        # @event('part')
+        # async def part_debug(self, ctx: PART):
+        #     log.info(ctx)
 
         # @event('roomstate')  # this was experimental code from before i added smartjoin
         # async def mass_join(self, ctx: ROOMSTATE):
@@ -54,14 +58,14 @@ class Elenabot(Session):
         #         self.megaindex += 1
         #         await self.join([name])
 
-        # @event('message')  # STAT TRACKER
-        # async def track_stats(self, ctx: PRIVMSG):
-        #     log.info(ctx)
-        #     # StatTracker(ctx).process()
+        @event('message')  # STAT TRACKER
+        async def track_stats(self, ctx: PRIVMSG):
+            pass
+            # StatTracker(ctx).process()
 
-        # @event('host')
-        # async def on_host_debug(self, ctx: HOSTTARGET):
-        #     log.info(ctx)
+        @event('host')
+        async def on_host_debug(self, ctx: HOSTTARGET):
+            log.info(ctx)
             # await self.part(ctx.channel)
             # await self.join(ctx.target)
 
@@ -72,7 +76,7 @@ class Elenabot(Session):
 
         #     log.info(ctx)
 
-        # @event('anysub')
+        # @event('sub')
         # async def on_sub_debug(self, ctx: PRIVMSG):
         #     log.debug(ctx)
 
@@ -88,7 +92,7 @@ class Elenabot(Session):
         async def new_zaqpaq_chatter(self, ctx: RITUAL):
             await ctx.send(f"raccPog raccPog raccPog Welcome {ctx.message.author} to the ZaqPaq! raccPog raccPog raccPog")
 
-        @event('anysub')
+        @event('sub')
         @cooldown(5)  # 5 second cooldown
         async def on_zaq_sub(self, ctx: SUBSCRIPTION):
             await ctx.send(f"{self.maximize_msg('zaqHeart zaqWiggle ', random.randint(50, 100))}zaqHeart")  # len 17
@@ -105,7 +109,7 @@ class Elenabot(Session):
         @cooldown(90)
         async def zaq_is_disco(self, ctx: PRIVMSG):
             await ctx.send('zaqDisco')
-        
+
         @event('message')
         @message('POGCRAZY', 'sw')
         @cooldown(45)
