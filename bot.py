@@ -41,10 +41,10 @@ class Elenabot(Session):
         self.start(config['twitch']['oauth'], config['twitch']['nickname'], channels)
 
     if __debug__:
-        @event('join:self')
-        async def join_debug(self, ctx: JOIN):
-            if ctx.channel == '#zaquelle':
-                await self.sock.close()
+        # @event('join:self')
+        # async def join_debug(self, ctx: JOIN):
+        #     if ctx.channel == '#zaquelle':
+        #         await self.sock.close()
 
         # @event('part')
         # async def part_debug(self, ctx: PART):
@@ -58,16 +58,16 @@ class Elenabot(Session):
         #         self.megaindex += 1
         #         await self.join([name])
 
-        @event('message')  # STAT TRACKER
-        async def track_stats(self, ctx: PRIVMSG):
-            pass
-            # StatTracker(ctx).process()
+        # @event('message')  # STAT TRACKER
+        # async def track_stats(self, ctx: PRIVMSG):
+        #     pass
+        #     # StatTracker(ctx).process()
 
         @event('host')
         async def on_host_debug(self, ctx: HOSTTARGET):
             log.info(ctx)
             # await self.part(ctx.channel)
-            # await self.join(ctx.target)
+            await self.join(ctx.target)
 
         # @event('raid')
         # async def on_raid_debug(self, ctx: RAID):

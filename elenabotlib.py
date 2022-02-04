@@ -266,10 +266,8 @@ class Session(object):
                 await self.join(channels)
                 async for msg in self.sock:
                     if msg.type == aiohttp.WSMsgType.TEXT:
-                        # line = msg.data[:-len('\r\n')]  # remove carriage return and newline
                         for line in msg.data.split("\r\n")[:-1]:  # ?!?
                             await self.parse(line)
-                            # await self.ping(line)
                     else:
                         log.debug(f'Unknown WSMessage Type: {msg.type}')
                 log.info('WebSocket has been closed!')
@@ -324,7 +322,7 @@ class Session(object):
                 await self.socksend(f"JOIN {c}")
                 log.info(f'Joined {c}')
 
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(0.5)  # 20 times per 10 seconds
 
     async def part(self, channels: Union[list, str]) -> None:  # this is currently untested
         chans = []
@@ -547,7 +545,7 @@ class Session(object):
                     log.debug(line)
                     log.debug(prs)
 
-        elif 'RECONNECT' in line:  # user influence shouldn't be possible
+        elif 'RECONNECT' in line:  # user influence shouldn't be possible. any user input is parsed above
             log.debug('Server sent RECONNECT.')
             await self.sock.close()
 
@@ -595,6 +593,10 @@ class Session(object):
             prs.channel = self.parse_channel(prs, line)
             prs.target, prs.viewers = self.parse_msg(prs, prs.channel, line).split(' ')
             # prs.target = f'#{prs.target}'
+
+            if prs.target == '-':
+                await self.call_listeners('unhost', ctx=prs)
+                return
 
             await self.call_listeners('host', ctx=prs)
             await self.call_listeners('hosttarget', ctx=prs)
