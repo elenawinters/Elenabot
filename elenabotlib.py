@@ -513,7 +513,7 @@ class Session(object):
             await self.call_listeners('message', ctx=prs)
 
         elif 'USERNOTICE' in line and line[0] == '@':
-            # if not self.any_listeners('usernotice', 'sub', 'raid', 'unraid', 'ritual'): return
+            # if not self.any_listeners('usernotice', 'sub', 'raid', 'unraid', 'ritual', 'bitsbadgetier'): return
             prs = self.create_prs(USERNOTICE, line)
             self.parse_privmsg(prs, line)
             self.format_display_name(prs)
@@ -539,8 +539,7 @@ class Session(object):
                 case 'ritual':
                     await self.parse_ritual(prs, line)
                 case 'bitsbadgetier':  # i documented this above but never looked into it
-                    log.debug(f'BITSBADGETIER: {line}')
-                    log.debug(f'BITSBADGETIER: {prs}')
+                    await self.call_listeners('bitsbadgetier', ctx=prs)  # i have a few examples, no idea how this works
                 case _:  # other cases for testing
                     log.debug(line)
                     log.debug(prs)
