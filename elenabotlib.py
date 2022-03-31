@@ -11,7 +11,7 @@
 
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, make_dataclass
 from typing import Any, Callable, Union
 from queue import Queue
 import traceback
@@ -43,9 +43,13 @@ class Message:
 
 
 @dataclass
-class Messageable:
-    message: Message = None
+class Sendable:
     send: str = None
+
+
+@dataclass
+class Messageable(Sendable):
+    message: Message = None
 
 
 @dataclass
@@ -61,14 +65,13 @@ class CLEARMSG(Messageable):
 
 
 @dataclass
-class ROOMSTATE:
+class ROOMSTATE(Sendable):
     channel: str = None
     emote_only: bool = False
     followers_only: int = -1
     r9k: bool = False
     slow: int = 0
     subs_only: bool = False
-    send: str = None
 
 
 @dataclass
@@ -106,20 +109,20 @@ class PRIVMSG(USERSTATE):
 
 
 @dataclass
-class HOSTTARGET:
+class HOSTTARGET(Sendable):
     channel: str = None
     target: str = None
     viewers: int = 0
 
 
 @dataclass
-class JOIN:  # join and part are the same struct, but for readability, they are seperated
+class JOIN(Sendable):  # join and part are the same struct, but for readability, they are seperated
     channel: str = None
     user: str = None
 
 
 @dataclass
-class PART:
+class PART(Sendable):
     channel: str = None
     user: str = None
 
@@ -229,8 +232,8 @@ def add_listener(func, name='any') -> None:
 
     """
         There used to be a logger here, but it's rather finicky.
-        If this program is wrapped, and then that wrapper is wrapped, the logs would appear.
-        If the program is single wrapped, the log messages would NOT appear.
+        If this program is wrapped, the logs would appear.
+        If the program isn't, the log messages would NOT appear.
         The botUI.py would log, but the bot.py would not.
 
         The listeners appended also reference the function right after the event is registered.
@@ -303,10 +306,9 @@ class Session(object):
 
         channels = [chan for chan in channels if chan not in self.channels]
         if not channels:
-            if hasattr(self, 'jointask'):
-                if self.jointask.done():
-                    for chan in self.channels:
-                        self.joinqueue.put(chan)
+            if hasattr(self, 'jointask') and self.jointask.done():
+                for chan in self.channels:
+                    self.joinqueue.put(chan)
             return
         for chan in channels:
             self.channels.append(chan)
@@ -382,18 +384,18 @@ class Session(object):
                     entry = self.attempt(int, entry, output=False)
                 self.attempt(setattr, prs, field.name, field.type(entry))
 
-    def create_prs(self, dclass, line: str):  # 'prs' is short for 'parsed'
+    def create_prs(self, dclass, line: str, base=True):  # 'prs' is short for 'parsed'
         dprs = self.cast(dclass, line)
-        dprs = self.parse_base(dprs)
+        if base: dprs = self.parse_base(dprs)
         prs = dclass(**dprs)
         self.prs_conv(prs)
         return prs
 
-    def parse_channel(self, chan: str, line: str):
+    def parse_channel(self, chan: Union[str, dataclass], line: str):
         class_name = chan if isinstance(chan, str) else type(chan).__name__
         return re.search(f'{class_name} ' + r"(#[a-zA-Z0-9-_\w]+)", line).group(1)
 
-    def proxy_send_obj(self, prs: Messageable, channel: str):
+    def proxy_send_obj(self, prs: dataclass, channel: str):
         async def _send_proxy(message: str):  # construct send function that can be called from ctx)
             await self.send(message, channel)
         prs.send = _send_proxy
@@ -513,7 +515,7 @@ class Session(object):
             await self.call_listeners('message', ctx=prs)
 
         elif 'USERNOTICE' in line and line[0] == '@':
-            # if not self.any_listeners('usernotice', 'sub', 'raid', 'unraid', 'ritual', 'bitsbadgetier'): return
+            # if not self.any_listeners('usernotice', 'sub', 'raid', 'unraid', 'ritual', 'bitsbadgetier', 'announcement'): return
             prs = self.create_prs(USERNOTICE, line)
             self.parse_privmsg(prs, line)
             self.format_display_name(prs)
@@ -540,6 +542,10 @@ class Session(object):
                     await self.parse_ritual(prs, line)
                 case 'bitsbadgetier':  # i documented this above but never looked into it
                     await self.call_listeners('bitsbadgetier', ctx=prs)  # i have a few examples, no idea how this works
+                case 'announcement':  # This is super new. I'm going to watch this one for a bit.
+                    await self.call_listeners('announcement', ctx=prs)
+                    log.debug(line)
+                    log.debug(prs)
                 case _:  # other cases for testing
                     log.debug(line)
                     log.debug(prs)
@@ -587,13 +593,15 @@ class Session(object):
             await self.call_listeners('clearmsg', ctx=prs)
 
         elif 'HOSTTARGET' in line and line[0] == ':':  # this is the only time imma make a proper seperate parsing
-            if not self.any_listeners('host', 'hosttarget'): return
-            prs = self.create_prs(HOSTTARGET, line)
+            if not self.any_listeners('host', 'hosttarget', 'unhost'): return
+            prs = self.create_prs(HOSTTARGET, line, False)
             prs.channel = self.parse_channel(prs, line)
             prs.target, prs.viewers = self.parse_msg(prs, prs.channel, line).split(' ')
+            self.proxy_send_obj(prs, prs.channel)
             # prs.target = f'#{prs.target}'
 
             if prs.target == '-':
+                prs.target = None
                 await self.call_listeners('unhost', ctx=prs)
                 return
 
@@ -601,7 +609,6 @@ class Session(object):
             await self.call_listeners('hosttarget', ctx=prs)
 
         elif re.search(r"[.:]tmi\.twitch\.tv [0-9]+ " + self.nick + r" [#:=]", line):
-            # log.debug(line)
             await self.glhf_auth(line)
 
         elif ':tmi.twitch.tv CAP * ACK :twitch.tv/' in line:
@@ -609,9 +616,10 @@ class Session(object):
 
         elif 'JOIN' in line and line[0] == ':':
             if not self.any_listeners('join'): return
-            prs = self.create_prs(JOIN, line)
+            prs = self.create_prs(JOIN, line, False)
             prs.channel = self.parse_channel(prs, line)
             prs.user = self.parse_user(line)
+            self.proxy_send_obj(prs, prs.channel)
 
             await self.call_listeners(f'join:{prs.user}', ctx=prs)
             if prs.user == self.nick:  # i dont like calling _lcall here, but we dont want to parse this
@@ -619,9 +627,10 @@ class Session(object):
 
         elif 'PART' in line and line[0] == ':':
             if not self.any_listeners('part'): return
-            prs = self.create_prs(PART, line)
+            prs = self.create_prs(PART, line, False)
             prs.channel = self.parse_channel(prs, line)
             prs.user = self.parse_user(line)
+            self.proxy_send_obj(prs, prs.channel)
 
             await self.call_listeners(f'part:{prs.user}', ctx=prs)
             if prs.user == self.nick:  # i dont even know if this will ever trigger, but it's here just in case
@@ -633,8 +642,22 @@ class Session(object):
     async def glhf_auth(self, line):
         ident = re.search(r"[.:]tmi\.twitch\.tv ([0-9]+) " + self.nick + r" [#:=]", line).group(1)
         match int(ident):
-            case 1 | 2 | 3 | 4 | 372 | 376 | 353 | 366:  # Welcome, GLHF!
+            case 1 | 2 | 3 | 4 | 372 | 376 | 366:  # Welcome, GLHF!
                 pass
+            case 353:  # Users in this chat! Sent on successful JOIN TODO: GET THIS DONE
+                if not self.any_listeners('join'): return
+                channel = self.parse_channel(f'{self.nick} =', line)  # haha string compat go brrrrr
+                users = re.search(r' :(.*)', line).group(1).split(' ')  # JOIN(channel, user)
+                for user in users:
+                    prs = self.create_prs(JOIN, line, False)
+                    prs.channel = channel
+                    prs.user = user
+                    # prs = JOIN(channel, user)
+                    self.proxy_send_obj(prs, channel)
+
+                    await self.call_listeners(f'join:{prs.user}', ctx=prs)
+                    if prs.user == self.nick: continue
+
             case 375:  # this is the connected response
                 log.info(f"Connected! Environment is {'DEBUG' if __debug__ else 'PRODUCTION'}.")
 

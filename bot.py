@@ -35,6 +35,7 @@ class Elenabot(Session):
             # channels = gen_stream_list.ActiveHasroot('nopixel')
             # channels = ['zaquelle', 'sixyrp', 'oneprotectivefox']
             channels = gen_stream_list.ActiveHasroot('gtarp')
+            self.kekchannels = []
         else:
             channels = ast.literal_eval(config['twitch']['channels'])
 
@@ -43,8 +44,13 @@ class Elenabot(Session):
     if __debug__:
         # @event('join:self')
         # async def join_debug(self, ctx: JOIN):
-        #     if ctx.channel == '#zaquelle':
-        #         await self.sock.close()
+        #     log.info(ctx)
+
+        @event('join')
+        async def join_debug(self, ctx: JOIN):
+            if ctx.user == self.nick: return
+            if ctx.user not in self.kekchannels:
+                self.kekchannels.append(ctx.user)
 
         # @event('part')
         # async def part_debug(self, ctx: PART):
@@ -63,10 +69,18 @@ class Elenabot(Session):
         #     pass
         #     # StatTracker(ctx).process()
 
+        @event('unhost')
+        async def on_unhost_debug(self, ctx: HOSTTARGET):
+            log.info(f'I have {len(self.kekchannels)} channels in memory right now!')
+            log.info(ctx)
+
         @event('host')
         async def on_host_debug(self, ctx: HOSTTARGET):
+            log.info(f'I have {len(self.kekchannels)} channels in memory right now!')
             log.info(ctx)
             # await self.part(ctx.channel)
+            if ctx.channel not in self.kekchannels:
+                self.kekchannels.append(ctx.target)
             await self.join(ctx.target)
 
         # @event('raid')
@@ -103,6 +117,12 @@ class Elenabot(Session):
             raid_msg = f"Incoming raid! {ctx.raider} is sending {ctx.viewers} raiders our way! raccPog raccPog raccPog"
             await ctx.send(raid_msg)
             log.debug(ctx)
+
+        @event('message')
+        @message('raccRun', 'in')
+        @cooldown(90)
+        async def racc_run_7tv(self, ctx: PRIVMSG):
+            await ctx.send('raccRun')
 
         @event('message')
         @message('zaqDisco', 'in')
