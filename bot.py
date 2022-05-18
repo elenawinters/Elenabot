@@ -1,21 +1,12 @@
 from elenabotlib import *
+from hints import *
 import sys, os, ast
 import configparser
 import random
 
 
-class StatTracker:
-    def __init__(self, ctx):
-        self.ctx = ctx
-
-    def process(self):
-        pass
-
-
 class Elenabot(Session):
     def __init__(self):
-        # LangFilter('assassins are trying to fuck me in the asswhore').process()
-        # return
         super().__init__()  # unfortunately, this is a required call for elenabotlib implemented like this
         config = configparser.ConfigParser()
         config_file = 'config.ini'
@@ -41,41 +32,39 @@ class Elenabot(Session):
 
         self.start(config['twitch']['oauth'], config['twitch']['nickname'], channels)
 
-    if __debug__:
-        # @event('join:self')
-        # async def join_debug(self, ctx: JOIN):
-        #     log.info(ctx)
+    @event('host')
+    async def join_on_raid(self, ctx: HOSTTARGET):
+        if ctx.viewers >= 10:
+            log.debug(ctx)
+            self.last_raided = '#' + ctx.target
+            self.last_raider = ctx.channel
+            if not __debug__:
+                await self.join(ctx.target)
+            log.debug(f'{ctx.channel} has hosted {ctx.target}')
+            log.debug(f'Joining target: {ctx.target}')
 
+    @event('join:self')
+    async def you_got_raided(self, ctx: RAID):
+        if not hasattr(self, 'last_raided') and not hasattr(self, 'last_raider'): return
+        if self.last_raided == ctx.channel:
+            log.debug(f'{ctx.channel} was raided by {self.last_raider}; raid acknowledged.')
+        # self.last_raided = None
+        # self.last_raider = None
+
+    if __debug__:
         @event('join')
-        async def join_debug(self, ctx: JOIN):
+        async def join_debug(self, ctx):
             if ctx.user == self.nick: return
             if ctx.user not in self.kekchannels:
                 self.kekchannels.append(ctx.user)
 
-        # @event('part')
-        # async def part_debug(self, ctx: PART):
-        #     log.info(ctx)
-
-        # @event('roomstate')  # this was experimental code from before i added smartjoin
-        # async def mass_join(self, ctx: ROOMSTATE):
-        #     await asyncio.sleep(0.55)
-        #     if self.megaindex < len(megachannels):
-        #         name = megachannels[self.megaindex]
-        #         self.megaindex += 1
-        #         await self.join([name])
-
-        # @event('message')  # STAT TRACKER
-        # async def track_stats(self, ctx: PRIVMSG):
-        #     pass
-        #     # StatTracker(ctx).process()
-
         @event('unhost')
-        async def on_unhost_debug(self, ctx: HOSTTARGET):
+        async def on_unhost_debug(self, ctx):
             log.info(f'I have {len(self.kekchannels)} channels in memory right now!')
             log.info(ctx)
 
         @event('host')
-        async def on_host_debug(self, ctx: HOSTTARGET):
+        async def on_host_debug(self, ctx):
             log.info(f'I have {len(self.kekchannels)} channels in memory right now!')
             log.info(ctx)
             # await self.part(ctx.channel)
@@ -83,138 +72,152 @@ class Elenabot(Session):
                 self.kekchannels.append(ctx.target)
             await self.join(ctx.target)
 
-        # @event('raid')
-        # async def on_raid_debug(self, ctx: RAID):
-        #     # if ctx.message.author in self.channels:
-        #     #     await self.part(ctx.message.author)
-
-        #     log.info(ctx)
-
-        # @event('sub')
-        # async def on_sub_debug(self, ctx: PRIVMSG):
-        #     log.debug(ctx)
+        @event('message')
+        @channel('burn')
+        async def burn_test(self, ctx):
+            log.info("BURN'S CHAT BE POPPING OFF")
 
     else:
-        # @event('message')
-        # @message('!quit', 'sw', False)
-        # async def bot_suicide_pill(self, ctx: PRIVMSG):
-        #     ctx.send('Elenabot is shutting down')
-        #     log.debug(ctx)
-        #     self.shutdown()
-
         @event('ritual:new_chatter')
+        @channel('zaquelle')
         async def new_zaqpaq_chatter(self, ctx: RITUAL):
             await ctx.send(f"raccPog raccPog raccPog Welcome {ctx.message.author} to the ZaqPaq! raccPog raccPog raccPog")
 
         @event('sub')
+        @channel('zaquelle')
         @cooldown(5)  # 5 second cooldown
         async def on_zaq_sub(self, ctx: SUBSCRIPTION):
             await ctx.send(f"{self.maximize_msg('zaqHeart zaqWiggle ', random.randint(50, 100))}zaqHeart")  # len 17
             log.debug(ctx)
 
         @event('raid')
+        @channel('zaquelle')
         async def on_zaq_raid(self, ctx: RAID):
             raid_msg = f"Incoming raid! {ctx.raider} is sending {ctx.viewers} raiders our way! raccPog raccPog raccPog"
             await ctx.send(raid_msg)
             log.debug(ctx)
 
         @event('message')
+        @channel('zaquelle')
         @message('raccRun', 'in')
         @cooldown(90)
         async def racc_run_7tv(self, ctx: PRIVMSG):
             await ctx.send('raccRun')
 
         @event('message')
+        @channel('zaquelle')
         @message('zaqDisco', 'in')
         @cooldown(90)
         async def zaq_is_disco(self, ctx: PRIVMSG):
             await ctx.send('zaqDisco')
 
         @event('message')
+        @channel('zaquelle')
         @message('POGCRAZY', 'sw')
         @cooldown(45)
         async def zaq_is_pogcrazy(self, ctx: PRIVMSG):
             await ctx.send('POGCRAZY')
 
         @event('message')
+        @channel('zaquelle')
         @message('raccPog', 'in')
         @cooldown(90)
         async def zaq_is_pog(self, ctx: PRIVMSG):
             await ctx.send('raccPog')
 
         @event('message')
-        @message('catJam', 'in')
+        @channel('zaquelle')
+        @message('catJAM', 'in')
         @cooldown(90)
         async def zaq_is_pog(self, ctx: PRIVMSG):
-            await ctx.send('catJam')
+            await ctx.send('catJAM')
 
         @event('message')
+        @channel('zaquelle')
         @message('zaqWiggle', 'in')
         @cooldown(90)
         async def zaq_is_pog(self, ctx: PRIVMSG):
             await ctx.send('zaqWiggle')
 
         @event('message')
+        @channel('zaquelle')
         @message('zaqBS', 'in')
         @cooldown(90)
         async def zaq_butt_stuff(self, ctx: PRIVMSG):
             await ctx.send('zaqBS')
 
         @event('message')
+        @channel('zaquelle')
         @message('zaqCool', 'in')
         @cooldown(120)
         async def zaq_is_cool(self, ctx: PRIVMSG):
             await ctx.send('zaqCool')
 
         @event('message')
+        @channel('zaquelle')
         @message('Sadge 👑 🐘', 'in')
         @cooldown(60)
-        async def queen_cutie(self, ctx: PRIVMSG):
+        async def queen_cutie_1(self, ctx: PRIVMSG):
             await ctx.send('Sadge 👑 🐘')
 
         @event('message')
+        @channel('zaquelle')
+        @message('PepeHands 👑 🐘', 'in')
+        @cooldown(60)
+        async def queen_cutie_2(self, ctx: PRIVMSG):
+            await ctx.send('PepeHands 👑 🐘')
+
+        @event('message')
+        @channel('zaquelle')
         @message('COPIUM', 'in')
         @cooldown(60)
         async def copium(self, ctx: PRIVMSG):
             await ctx.send('COPIUM')
 
         @event('message')
+        @channel('zaquelle')
         @message('AYAYA', 'in')
         @cooldown(60)
         async def ayaya(self, ctx: PRIVMSG):
             await ctx.send('AYAYA')
 
         @event('message')
+        @channel('zaquelle')
         @message('pepeSmoke', 'in')
         @cooldown(120)
         async def smoke_hayes_smoke(self, ctx: PRIVMSG):
             await ctx.send('pepeSmoke')
 
         @event('message')
+        @channel('zaquelle')
         @message('zaqHayes', 'in')
         @cooldown(60)
         async def good_shit_hayes(self, ctx: PRIVMSG):
             await ctx.send('zaqHayes')
 
         # @event('message')
+        # @channel('zaquelle')
         # @message('cowDance', 'in')
         # @cooldown(120)
         # async def cow_dance(self, ctx: PRIVMSG):
         #     await ctx.send('cowDance')
 
         @event('message')
+        @channel('zaquelle')
         @message('MLADY')
         @cooldown(60)
         async def mlady(self, ctx: PRIVMSG):
             await ctx.send('MLADY')
 
         @event('message')
+        @channel('zaquelle')
         @author('richardharrow_')
         @message('ppHopAround')
         async def ppHopAround(self, ctx: PRIVMSG):
             await ctx.send('ppHopAround')
 
         @event('message')
+        @channel('zaquelle')
         @message('!ping', 'sw')
         async def lol_you_thought(self, ctx: PRIVMSG):
             pick = ["I may be a bot but you can't just ping me like that zaqK", 'Gimme your fingers zaqK',
@@ -222,18 +225,21 @@ class Elenabot(Session):
             await ctx.send(random.choice(pick))
 
         @event('message')
+        @channel('zaquelle')
         @author('nightbot')
         @message('Zaquelle has summoned her inner Wookie', 'sw')
         async def wookie(self, ctx: PRIVMSG):
             await ctx.send('zaqWookie')
 
         @event('message')
+        @channel('zaquelle')
         @author('oythebrave')
         @message('brb gotta pee')
         async def oys_gotta_pee(self, ctx: PRIVMSG):
             await ctx.send('ok')
 
         @event('message')
+        @channel('zaquelle')
         @author('oythebrave')
         @message('FeelsHayesMan Glizzy')
         @cooldown(60)
@@ -241,48 +247,56 @@ class Elenabot(Session):
             await ctx.send('FeelsHayesMan Glizzy')
 
         @event('message')
+        @channel('zaquelle')
         @author('nightbot')
         @message('zaqT THIS IS YOUR REMINDER TO DRINK WATER OR SOME SORT OF LIQUID BECAUSE YOUR BODY NEEDS IT AND SHIT zaqT')
         async def drink_water_zaq(self, ctx: PRIVMSG):
             await ctx.send('zaqT')
 
         @event('message')
+        @channel('zaquelle')
         @author('nightbot')
         @message('Zaquelle is afk zaqPls so the raccoons can dance away zaqPls and with a smirk zaqPls the chat will lurk zaqPls when Zaq comes back to play zaqLurk')
         async def zaq_is_afk(self, ctx: PRIVMSG):
             await ctx.send('Zaquelle is afk zaqPls so the raccoons can dance away zaqPls and with a smirk zaqPls the chat will lurk zaqPls when Zaq comes back to play zaqLurk')
 
         @event('message')
+        @channel('zaquelle')
         @author('oythebrave')
         @message('This zaq is good')
         async def zaq_is_good(self, ctx: PRIVMSG):
             await ctx.send('NODDERS')
 
         @event('message')
+        @channel('zaquelle')
         @author('oythebrave')
         @message('zaqNOM')
         async def zaq_nom(self, ctx: PRIVMSG):
             await ctx.send('zaqPop')
 
         @event('message')
-        @cooldown(60)
+        @channel('zaquelle')
         @message('zaqPop', 'in')
+        @cooldown(60)
         async def zaq_nom(self, ctx: PRIVMSG):
             await ctx.send('zaqPop')
 
         @event('message')
-        @cooldown(60)
+        @channel('zaquelle')
         @message('zaqCA', 'in')
+        @cooldown(60)
         async def zaq_coppa(self, ctx: PRIVMSG):
             await ctx.send('zaqCA')
 
         @event('message')
+        @channel('zaquelle')
         @author('streamlabs')
         @message('A !raffle raffle has started for Viewers use !raffle to enter the raffle.', 'in')
         async def raffle_start(self, ctx: PRIVMSG):
             await ctx.send('!raffle')
 
         # @event('message')
+        # @channel('zaquelle')
         # @author('dwingert')
         # @message('Did ya know', 'sw')
         # def dwin_did_you_know(self, ctx: PRIVMSG):
