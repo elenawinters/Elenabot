@@ -31,10 +31,6 @@ import re
 log = logging.getLogger(__name__)
 
 
-async def cancelCall():  # i need to return an async function and i cant do an async lambda. i hate it. if i find a way, i'll get rid of this
-    return
-
-
 def event(name: str = 'any', *extras) -> Callable:  # listener/decorator for any event
     events = list(extras)
     events.append(name)
@@ -54,7 +50,7 @@ def cooldown(time: int) -> Callable:
         def wrapper(self: Session, ctx) -> Callable:
             if self.func_on_cooldown(func, time):
                 # log.debug(f'{func.__name__} is on cooldown!')
-                return cancelCall()
+                return asyncio.sleep(0)
             return func(self, ctx)
         return wrapper
     return decorator
@@ -65,7 +61,7 @@ def ignore_myself() -> Callable:
         def wrapper(self: Session, ctx: Messageable) -> Callable:
             if ctx.user.lower() != self.nick:
                 return func(self, ctx)
-            return cancelCall()
+            return asyncio.sleep(0)
         return wrapper
     return decorator
 
@@ -75,7 +71,7 @@ def author(*names) -> Callable:  # check author
         def wrapper(self: Session, ctx: Messageable) -> Callable:
             if any(ctx.user.lower() == name.lower() for name in list(names)):
                 return func(self, ctx)
-            return cancelCall()
+            return asyncio.sleep(0)
         return wrapper
     return decorator
 
@@ -90,7 +86,7 @@ def channel(*names) -> Callable:  # check channel
                 return _name if _name[0] == '#' else f'#{_name}'
             if any(ctx.channel == adapt(name) for name in list(names)):
                 return func(self, ctx)
-            return cancelCall()
+            return asyncio.sleep(0)
         return wrapper
     return decorator
 
@@ -128,9 +124,9 @@ def message(*args: tuple, **kwargs: dict) -> Callable:
 
             if any(msg_compare(mode, ctx.message.content, msg) for msg in possible):
                 if ignore_self and ctx.user.lower() == self.nick:
-                    return cancelCall()
+                    return asyncio.sleep(0)
                 return func(self, ctx)
-            return cancelCall()
+            return asyncio.sleep(0)
         return wrapper
     return decorator
 
@@ -212,6 +208,7 @@ rx_353 = re.compile(r'\w+')
 
 class Session(object):
     def __init__(self) -> None:
+        self.auto_reconnect = True
         self.host = 'ws://irc-ws.chat.twitch.tv'
         self.port = 80
         self.cooldowns = {}
@@ -483,16 +480,14 @@ class Session(object):
                     self.jointask.cancel()
                     self.joinqueue = Queue()
 
-        def run_loop():
-            try:
-                asyncio.run(wsloop())
-            except Exception as exc:
-                log.exception(exc)
+        if not self.auto_reconnect:
+            self.attempt(asyncio.run, wsloop())
+            return
 
-        if not __debug__:
-            while True: run_loop()
-        else:  # if debug, don't loop
-            run_loop()
+        while self.auto_reconnect:
+            self.attempt(asyncio.run, wsloop())
+        else:
+            log.debug('Auto Reconnect has been disabled, and the program has stopped.')
 
     async def join(self, channels: Union[list, str]):
         chans = []

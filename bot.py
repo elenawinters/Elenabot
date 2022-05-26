@@ -32,25 +32,6 @@ class Elenabot(Session):
 
         self.start(config['twitch']['oauth'], config['twitch']['nickname'], channels)
 
-    @event('host')
-    async def join_on_raid(self, ctx: HOSTTARGET):
-        if ctx.viewers >= 10:
-            log.debug(ctx)
-            self.last_raided = '#' + ctx.target
-            self.last_raider = ctx.channel
-            if not __debug__:
-                await self.join(ctx.target)
-            log.debug(f'{ctx.channel} has hosted {ctx.target}')
-            log.debug(f'Joining target: {ctx.target}')
-
-    @event('join:self')
-    async def you_got_raided(self, ctx: RAID):
-        if not hasattr(self, 'last_raided') and not hasattr(self, 'last_raider'): return
-        if self.last_raided == ctx.channel:
-            log.debug(f'{ctx.channel} was raided by {self.last_raider}; raid acknowledged.')
-        # self.last_raided = None
-        # self.last_raider = None
-
     if __debug__:
         @event('join')
         async def join_debug(self, ctx):
@@ -78,6 +59,25 @@ class Elenabot(Session):
             log.info("BURN'S CHAT BE POPPING OFF")
 
     else:
+        @event('host')
+        @channel('zaquelle')
+        async def join_on_raid(self, ctx: HOSTTARGET):
+            if ctx.viewers >= 40:
+                log.debug(ctx)
+                self.last_raided = '#' + ctx.target
+                self.last_raider = ctx.channel
+                await self.join(ctx.target)
+                log.debug(f'{ctx.channel} has hosted {ctx.target}')
+                log.debug(f'Joining target: {ctx.target}')
+
+        @event('join:self')
+        async def you_got_raided(self, ctx: RAID):
+            if not hasattr(self, 'last_raided') and not hasattr(self, 'last_raider'): return
+            if self.last_raided == ctx.channel and self.last_raider == '#zaquelle':
+                log.debug(f'{ctx.channel} was raided by {self.last_raider}; raid acknowledged.')
+                self.auto_reconnect = False
+                self.sock.close()
+
         @event('ritual:new_chatter')
         @channel('zaquelle')
         async def new_zaqpaq_chatter(self, ctx: RITUAL):
