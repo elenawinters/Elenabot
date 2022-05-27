@@ -29,6 +29,7 @@ import re
 
 
 log = logging.getLogger(__name__)
+SOH = chr(1)  # ASCII SOH (Start of Header) Control Character
 
 
 def event(name: str = 'any', *extras) -> Callable:  # listener/decorator for any event
@@ -323,8 +324,24 @@ class Session(object):
         await self.call_listeners(type(ctx).__name__.lower(), ctx=prs)
         self.gsu = ctx  # i know that this isn't the right acronym but i dont care
 
-    @dispatch('privmsg', 'userstate')
-    async def handle_messageable(self, ctx: Union[PRIVMSG, USERSTATE]):
+    @dispatch('privmsg')
+    async def handle_privmsg(self, ctx: Union[PRIVMSG, USERSTATE]):
+        if not self.any_listeners('message', 'userstate'): return
+        dprs = ctx.__dict__
+        if hasattr(ctx, 'display_name'):
+            dprs['user'] = ctx.display_name
+            del dprs['display_name']
+        dprs['send'] = self.proxy_send_obj(ctx.channel)
+        dprs['action'] = True if hasattr(ctx, 'message') and 'ACTION' in ctx.message and SOH in ctx.message else False
+        dprs['message'] = Message(dprs['user'], ctx.channel, ctx.message[len(SOH + 'ACTION '):-len(SOH)] if dprs['action'] else ctx.message)
+        prs = make_dataclass(type(ctx).__name__, [tuple([k, v]) for k, v in dprs.items()])(**dprs)
+        if prs.action:
+            await self.call_listeners('message:action', ctx=prs)
+            return
+        await self.call_listeners('message', ctx=prs)
+
+    @dispatch('userstate')
+    async def handle_userstate(self, ctx: Union[PRIVMSG, USERSTATE]):
         if not self.any_listeners('message', 'userstate'): return
         dprs = ctx.__dict__
         if hasattr(ctx, 'display_name'):
@@ -332,9 +349,6 @@ class Session(object):
             del dprs['display_name']
         dprs['send'] = self.proxy_send_obj(ctx.channel)
         prs = make_dataclass(type(ctx).__name__, [tuple([k, v]) for k, v in dprs.items()])(**dprs)
-        if bool(type(ctx).__name__ == 'PRIVMSG'):
-            prs.message = Message(dprs['user'], ctx.channel, ctx.message)
-            await self.call_listeners('message', ctx=prs)
         await self.call_listeners(type(ctx).__name__.lower(), ctx=prs)
 
     @dispatch('roomstate', 'notice', 'clearmsg')
