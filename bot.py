@@ -43,6 +43,8 @@ class Elenabot(Session):
         async def on_unhost_debug(self, ctx):
             log.info(f'I have {len(self.kekchannels)} channels in memory right now!')
             log.info(ctx)
+            self.auto_reconnect = False
+            await self.sock.close()
 
         @event('host')
         async def on_host_debug(self, ctx):
@@ -76,7 +78,7 @@ class Elenabot(Session):
             if self.last_raided == ctx.channel and self.last_raider == '#zaquelle':
                 log.debug(f'{ctx.channel} was raided by {self.last_raider}; raid acknowledged.')
                 self.auto_reconnect = False
-                self.sock.close()
+                await self.sock.close()
 
         @event('ritual:new_chatter')
         @channel('zaquelle')

@@ -218,7 +218,7 @@ class Session(object):
 
         self.last = ''
 
-    # Refactor this function to reduce its Cognitive Complexity from 36 to the 15 allowed. Note: I'm not gonna try to reduce the complexity.
+    # Refactor this function to reduce its Cognitive Complexity from 39 to the 15 allowed. Note: I'm not gonna try to reduce the complexity.
     def TwitchIRCFormatter(self, original: str = '@badge-info=gay/4;badges=lesbian/3,premium/1;user-type=awesome :tmi.twitch.tv GAYMSG #zaquelle :This is kinda gay'):  # tested with every @ based message. parses correctly.
         array = original[1:].split(' ')  # Indexes | 0 = Server, 1 = Notice, 2 = Channel, 3+ = Message (Broken up, use Regex)
         offset = 0
@@ -441,7 +441,7 @@ class Session(object):
         await self.call_listeners('hosttarget', ctx=prs)  # this is sent regardless of focus
         await self.call_listeners(focus, ctx=prs)
 
-    # Refactor this function to reduce its Cognitive Complexity from 53 to the 15 allowed. Note: I'm not gonna try to reduce the complexity.
+    # Refactor this function to reduce its Cognitive Complexity from 44 to the 15 allowed. Note: I'm not gonna try to reduce the complexity.
     def start(self, token, nick, channels=None) -> None:
         self.token = token
         self.nick = nick
@@ -501,7 +501,7 @@ class Session(object):
         while self.auto_reconnect:
             self.attempt(asyncio.run, wsloop())
         else:
-            log.debug('Auto Reconnect has been disabled, and the program has stopped.')
+            log.info('Auto Reconnect has been disabled, and the program has stopped.')
 
     async def join(self, channels: Union[list, str]):
         chans = []
