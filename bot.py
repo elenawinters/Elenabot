@@ -43,8 +43,6 @@ class Elenabot(Session):
         async def on_unhost_debug(self, ctx):
             log.info(f'I have {len(self.kekchannels)} channels in memory right now!')
             log.info(ctx)
-            self.auto_reconnect = False
-            await self.sock.close()
 
         @event('host')
         async def on_host_debug(self, ctx):
@@ -60,6 +58,10 @@ class Elenabot(Session):
         async def burn_test(self, ctx):
             log.info("BURN'S CHAT BE POPPING OFF")
 
+        @event('cap')
+        async def get_cap(self, ctx):
+            log.debug(ctx)
+
     else:
         @event('host')
         @channel('zaquelle')
@@ -69,14 +71,23 @@ class Elenabot(Session):
                 self.last_raided = '#' + ctx.target
                 self.last_raider = ctx.channel
                 await self.join(ctx.target)
-                log.debug(f'{ctx.channel} has hosted {ctx.target}')
-                log.debug(f'Joining target: {ctx.target}')
+                # log.debug(f'{ctx.channel} has hosted {ctx.target}')
+                # log.debug(f'Joining target: {ctx.target}')
 
-        @event('join:self')
-        async def you_got_raided(self, ctx: RAID):
+        # @event('join:self')
+        # async def you_got_raided(self, ctx: JOIN):
+        #     if not hasattr(self, 'last_raided') and not hasattr(self, 'last_raider'): return
+        #     if self.last_raided == ctx.channel and self.last_raider == '#zaquelle':
+        #         log.debug(f'{ctx.channel} was raided by {self.last_raider}; raid acknowledged.')
+        #         self.auto_reconnect = False
+        #         await self.sock.close()
+
+        @event('message')
+        async def raiding_msg(self, ctx: PRIVMSG):
             if not hasattr(self, 'last_raided') and not hasattr(self, 'last_raider'): return
-            if self.last_raided == ctx.channel and self.last_raider == '#zaquelle':
-                log.debug(f'{ctx.channel} was raided by {self.last_raider}; raid acknowledged.')
+            if self.last_raided != ctx.channel and self.last_raider != '#zaquelle': return
+            if 'zaqWiggle' in ctx.message.content:
+                await ctx.send(self.fill_msg('zaqWiggle ', 320))
                 self.auto_reconnect = False
                 await self.sock.close()
 
@@ -95,9 +106,23 @@ class Elenabot(Session):
         @event('raid')
         @channel('zaquelle')
         async def on_zaq_raid(self, ctx: RAID):
-            raid_msg = f"Incoming raid! {ctx.raider} is sending {ctx.viewers} raiders our way! raccPog raccPog raccPog"
+            raid_msg = f"INCOMING! {ctx.raider} is sending {ctx.viewers} raiders our way! raccPog raccPog raccPog"
             await ctx.send(raid_msg)
             log.debug(ctx)
+
+        @event('message')
+        @channel('zaquelle')
+        @message('zaqPlus1', 'in')
+        @cooldown(90)
+        async def zaq_plus_1(self, ctx: PRIVMSG):
+            await ctx.send('zaqPlus1')
+
+        @event('message')
+        @channel('zaquelle')
+        @message('zaqMinus1', 'in')
+        @cooldown(90)
+        async def zaq_minus_1(self, ctx: PRIVMSG):
+            await ctx.send('zaqMinus1')
 
         @event('message')
         @channel('zaquelle')

@@ -13,8 +13,8 @@
 
 from typing import Any, Callable, Union
 from dataclasses import make_dataclass
-from hints import USERSTATE, Badge, Message, Messageable, PRIVMSG
 from queue import Queue
+from hints import *
 import traceback
 import datetime
 import aiohttp
@@ -202,9 +202,7 @@ def add_listener(func, name='any') -> None:
     """
 
 
-rx_ampersat = re.compile(r'([-\w]+)=(.*?)(;| :)')
 rx_positive = re.compile(r'^\d+$')
-rx_353 = re.compile(r'\w+')
 
 
 class Session(object):
@@ -218,14 +216,14 @@ class Session(object):
 
         self.last = ''
 
-    # Refactor this function to reduce its Cognitive Complexity from 39 to the 15 allowed. Note: I'm not gonna try to reduce the complexity.
+    # Refactor this function to reduce its Cognitive Complexity from 38 to the 15 allowed. Note: I'm not gonna try to reduce the complexity.
     def TwitchIRCFormatter(self, original: str = '@badge-info=gay/4;badges=lesbian/3,premium/1;user-type=awesome :tmi.twitch.tv GAYMSG #zaquelle :This is kinda gay'):  # tested with every @ based message. parses correctly.
         array = original[1:].split(' ')  # Indexes | 0 = Server, 1 = Notice, 2 = Channel, 3+ = Message (Broken up, use Regex)
         offset = 0
         info = {}
         if original.startswith('@'):
             offset = 1
-            for k, v, _ in rx_ampersat.findall(original):
+            for k, v, _ in re.findall(r'([-\w]+)=(.*?)(;| :)', re.split(r'tmi\.twitch\.tv', original)[0]):
                 k = k.replace('-', '_')
                 if k in ('badge_info', 'badges'):  # converts for specific fields
                     badges = []
@@ -256,12 +254,11 @@ class Session(object):
 
         if len(array) - 1 >= 2 + offset:  # this is so sketch but it works. basically, check if a channel is provided
             info['channel'] = array[2 + offset]  # force channel
-            message = re.search(f"{array[1 + offset]} {info['channel']}" + r'..(.*)', original)
-            if message: info['message'] = message.group(1)
+            if message := re.search(f"{array[1 + offset]} {info['channel']}" + r'..(.*)', original):
+                info['message'] = message.group(1)
 
-        user = re.search(r"([a-zA-Z0-9-_\w]+)!([a-zA-Z0-9-_\w]+)@([a-zA-Z0-9-_\w]+)", array[0 + offset])
-        if user and f'{user.group(1)}!{user.group(1)}@{user.group(1)}' in array[0 + offset]:
-            info['user'] = user.group(1)  # we verify the user
+        if user := re.search(r"(?P<name>[\w]+)!(?P=name)@(?P=name)", array[0 + offset]):
+            info['user'] = user.group(1)
 
         if __debug__:  # include server if in debug mode. this isn't useful for most cases.
             info['server'] = array[0 + offset]
@@ -275,7 +272,7 @@ class Session(object):
 
     @dispatch(1, 2, 3, 4, 372, 376, 366)
     async def sinkhole(self, ctx):  # I'm not currently parsing these as I don't need to.
-        await self.call_listeners(type(ctx).__name__, ctx=ctx)
+        pass
 
     @dispatch('join', 'part')
     async def handle_join_part(self, ctx):
@@ -289,7 +286,7 @@ class Session(object):
     @dispatch(353)
     async def handle_353(self, ctx):
         if not self.any_listeners('join'): return
-        users = rx_353.findall(ctx.message)
+        users = re.findall(r'\w+', ctx.message)
         channel = users.pop(0)
 
         for user in users:
@@ -309,24 +306,26 @@ class Session(object):
 
     @dispatch('cap')
     async def handle_cap(self, ctx):
-        pass  # ENSURE CAP
-        # dprs = ctx.__dict__
-        # if hasattr(ctx, 'channel'): del dprs['channel']
-        # prs = make_dataclass(type(ctx).__name__, [tuple([k, v]) for k, v in dprs.items()])
-        # await self.call_listeners(type(ctx).__name__.lower(), ctx=prs(**dprs))
+        dprs = ctx.__dict__  # dprs and ctx are linked
+        dprs['capabilities'] = re.findall(r'twitch\.tv\/(\w+)', ctx.message)
+        dprs['response'] = re.search(r'(\w+) :twitch\.tv\/\w+', ctx.message).group(1)
+        del dprs['channel']
+        del dprs['message']
+        prs = make_dataclass(type(ctx).__name__, [tuple([k, v]) for k, v in dprs.items()])
+        await self.call_listeners(type(ctx).__name__.lower(), ctx=prs(**dprs))
 
     @dispatch('globaluserstate')  # I usually format display_name to user but I don't want to do that with GUS
-    async def handle_globaluserstate(self, ctx):  # ALWAYS SET THIS
+    async def handle_globaluserstate(self, ctx: GLOBALUSERSTATE):  # ALWAYS SET THIS
         dprs = ctx.__dict__
         dprs['user'] = ctx.display_name
         del dprs['display_name']
         prs = make_dataclass(type(ctx).__name__, [tuple([k, v]) for k, v in dprs.items()])(**dprs)
         await self.call_listeners(type(ctx).__name__.lower(), ctx=prs)
-        self.gsu = ctx  # i know that this isn't the right acronym but i dont care
+        self.state = ctx
 
     @dispatch('privmsg')
     async def handle_privmsg(self, ctx: Union[PRIVMSG, USERSTATE]):
-        if not self.any_listeners('message', 'userstate'): return
+        if not self.any_listeners('message'): return
         dprs = ctx.__dict__
         if hasattr(ctx, 'display_name'):
             dprs['user'] = ctx.display_name
@@ -342,7 +341,7 @@ class Session(object):
 
     @dispatch('userstate')
     async def handle_userstate(self, ctx: Union[PRIVMSG, USERSTATE]):
-        if not self.any_listeners('message', 'userstate'): return
+        if not self.any_listeners('userstate'): return
         dprs = ctx.__dict__
         if hasattr(ctx, 'display_name'):
             dprs['user'] = ctx.display_name
@@ -380,7 +379,7 @@ class Session(object):
             await self.call_listeners(f'sub:{prs.msg_id}', ctx=prs)  # this covers anysub, just use "sub" as the event
 
         elif ctx.msg_id == 'raid':
-            dprs['raider'] = dprs['msg_param_displayName'] if dprs['msg_param_displayName'] else dprs['msg_param_login']
+            dprs['raider'] = dprs['msg_param_displayName'] if 'msg_param_displayName' in dprs else dprs['msg_param_login']
             dprs['viewers'] = dprs['msg_param_viewerCount']
 
             prs = make_dataclass(ctx.msg_id.upper(), [tuple([k, v]) for k, v in dprs.items()])(**dprs)
@@ -441,7 +440,7 @@ class Session(object):
         await self.call_listeners('hosttarget', ctx=prs)  # this is sent regardless of focus
         await self.call_listeners(focus, ctx=prs)
 
-    # Refactor this function to reduce its Cognitive Complexity from 44 to the 15 allowed. Note: I'm not gonna try to reduce the complexity.
+    # Refactor this function to reduce its Cognitive Complexity from 43 to the 15 allowed. Note: I'm not gonna try to reduce the complexity.
     def start(self, token, nick, channels=None) -> None:
         self.token = token
         self.nick = nick
@@ -456,7 +455,7 @@ class Session(object):
                 await self.sock.send_str(f"NICK {self.nick}")
                 await self.join(channels)
                 async for msg in self.sock:
-                    if msg.type != aiohttp.WSMsgType.TEXT:  # guard clause? cleaner code overall
+                    if msg.type != aiohttp.WSMsgType.TEXT:
                         log.debug(f'Unknown WSMessage Type: {msg.type}')
                         continue
                     for line in msg.data.split("\r\n")[:-1]:  # ?!?
@@ -500,14 +499,11 @@ class Session(object):
 
         while self.auto_reconnect:
             self.attempt(asyncio.run, wsloop())
-        else:
-            log.info('Auto Reconnect has been disabled, and the program has stopped.')
+
+        log.info('Auto Reconnect has been disabled, and the program has stopped.')
 
     async def join(self, channels: Union[list, str]):
-        chans = []
-        if isinstance(channels, str):
-            chans.append(channels)
-        if chans: channels = chans
+        channels = [channels] if isinstance(channels, str) else channels
 
         channels = [chan for chan in channels if chan not in self.channels]
         if not channels:
@@ -518,7 +514,6 @@ class Session(object):
         for chan in channels:
             self.channels.append(chan)
             self.joinqueue.put(chan)
-        return
 
     async def _join(self) -> None:  # i dont like this, but there's no other way to really do this
         while True:
@@ -531,14 +526,14 @@ class Session(object):
             await asyncio.sleep(0.5)  # 20 times per 10 seconds
 
     async def part(self, channels: Union[list, str]) -> None:  # this is currently untested
-        chans = []
-        if isinstance(channels, str):
-            chans.append(channels)
-        if chans: channels = chans
+        channels = [channels] if isinstance(channels, str) else channels
+
         channels = [chan for chan in channels if chan in self.channels]
         if not channels: return
+
         for chan in channels:
             self.channels.remove(chan)
+
         for x in channels:
             c = x.lower() if x[0] == '#' else f'#{x.lower()}'
             await self.sock.send_str(f"PART {c}")
@@ -570,18 +565,13 @@ class Session(object):
     async def _lcall(self, event: str, **kwargs):
         if event not in _listeners: return
         for func in _listeners[event]:
-            # log.debug(type(func))
-            # log.debug(func.__name__)
             await func(self, **kwargs)
 
     async def call_listeners(self, event: str, **kwargs) -> None:  # this is all overcomplicated
-        # log.debug(kwargs.get('ctx', None))
         if ':' in event: await self._lcall(event.split(':')[0], **kwargs)  # we call the base event here. simplifies coding subevents
         await self._lcall(event, **kwargs)
         if 'any' not in event:
             await self._lcall('any', **kwargs)
-            # if ctx := kwargs.get('ctx', None):
-            #     self.log_to_console(ctx)
 
     def func_on_cooldown(self, func: Callable, time: int) -> bool:
         time_now = datetime.datetime.utcnow()
@@ -595,11 +585,11 @@ class Session(object):
         return True
 
     async def send(self, message: str, channel: str) -> None:
-        if not __debug__:
+        if not __debug__:  # since i do a lot of debugging, i dont want to accidentally send something in a chat
             await self.sock.send_str(f'PRIVMSG {channel} :{message}')  # placement of the : is important :zaqPbt:
 
-    def maximize_msg(self, content: str, offset: int = 0) -> str:  # max length is variable and this is static
-        return content * math.trunc((500 - offset) / len(content))  # need to trunc cuz we always round down
+    def maximize_msg(self, content: str, offset: int = 0) -> str:
+        return self.fill_msg(content, 500 - offset)
 
     def fill_msg(self, content: str, length: int = 500) -> str:
-        return content * math.trunc((length) / len(content))  # need to trunc cuz we always round down
+        return content * math.trunc(length / len(content))  # need to trunc cuz we always round down
