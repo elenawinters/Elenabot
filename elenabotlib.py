@@ -14,7 +14,6 @@
 from typing import Any, Callable, Union
 from dataclasses import make_dataclass
 from queue import Queue
-from hints import *
 import traceback
 import datetime
 import aiohttp
@@ -22,6 +21,7 @@ import asyncio
 import inspect
 import logging
 import struct
+import hints
 import time
 import math
 import sys
@@ -59,7 +59,7 @@ def cooldown(time: int) -> Callable:
 
 def ignore_myself() -> Callable:
     def decorator(func: Callable) -> Callable:
-        def wrapper(self: Session, ctx: Messageable) -> Callable:
+        def wrapper(self: Session, ctx: hints.Messageable) -> Callable:
             if ctx.user.lower() != self.nick:
                 return func(self, ctx)
             return asyncio.sleep(0)
@@ -69,7 +69,7 @@ def ignore_myself() -> Callable:
 
 def author(*names) -> Callable:  # check author
     def decorator(func: Callable) -> Callable:
-        def wrapper(self: Session, ctx: Messageable) -> Callable:
+        def wrapper(self: Session, ctx: hints.Messageable) -> Callable:
             if any(ctx.user.lower() == name.lower() for name in list(names)):
                 return func(self, ctx)
             return asyncio.sleep(0)
@@ -82,7 +82,7 @@ authors = author
 
 def channel(*names) -> Callable:  # check channel
     def decorator(func: Callable) -> Callable:
-        def wrapper(self: Session, ctx: Messageable) -> Callable:
+        def wrapper(self: Session, ctx: hints.Messageable) -> Callable:
             def adapt(_name: str) -> str:
                 return _name if _name[0] == '#' else f'#{_name}'
             if any(ctx.channel == adapt(name) for name in list(names)):
@@ -112,7 +112,7 @@ def msg_compare(mode: str = 'eq', actual: str = 'test', compare: str = 'test') -
 
 def message(*args: tuple, **kwargs: dict) -> Callable:
     def decorator(func: Callable) -> Callable:
-        def wrapper(self: Session, ctx: Messageable) -> Callable:
+        def wrapper(self: Session, ctx: hints.Messageable) -> Callable:
             mode = [pmode for pmode in args if msg_compare(pmode)]  # this is so bad lmfao
             if not mode:
                 mode = kwargs.get('mode', kwargs.get('m', 'eq'))
@@ -216,8 +216,8 @@ class Session(object):
 
         self.last = ''
 
-    # Refactor this function to reduce its Cognitive Complexity from 38 to the 15 allowed. Note: I'm not gonna try to reduce the complexity.
-    def TwitchIRCFormatter(self, original: str = '@badge-info=gay/4;badges=lesbian/3,premium/1;user-type=awesome :tmi.twitch.tv GAYMSG #zaquelle :This is kinda gay'):  # tested with every @ based message. parses correctly.
+    # This is a complex function, and it has a high "Cognitive Complexity", beyond the limit of 15.
+    def twitch_irc_formatter(self, original: str = '@badge-info=gay/4;badges=lesbian/3,premium/1;user-type=awesome :tmi.twitch.tv GAYMSG #zaquelle :This is kinda gay'):  # tested with every @ based message. parses correctly.
         array = original[1:].split(' ')  # Indexes | 0 = Server, 1 = Notice, 2 = Channel, 3+ = Message (Broken up, use Regex)
         offset = 0
         info = {}
@@ -232,7 +232,7 @@ class Session(object):
                             version = badge.group(2).replace('\\s', ' ')
                             if rx_positive.match(version):
                                 version = int(version)
-                            badges.append(Badge(name=badge.group(1), version=version))
+                            badges.append(hints.Badge(name=badge.group(1), version=version))
                     info[k] = badges
                 elif k in ('emote_sets', 'emotes'):
                     info[k] = [e for e in v.split(',') if e]  # E
@@ -252,7 +252,7 @@ class Session(object):
                         v = True
                     info[k] = v
 
-        if len(array) - 1 >= 2 + offset:  # this is so sketch but it works. basically, check if a channel is provided
+        if len(array) >= 3 + offset:  # this is so sketch but it works. basically, check if a channel is provided
             info['channel'] = array[2 + offset]  # force channel
             if message := re.search(f"{array[1 + offset]} {info['channel']}" + r'..(.*)', original):
                 info['message'] = message.group(1)
@@ -315,7 +315,7 @@ class Session(object):
         await self.call_listeners(type(ctx).__name__.lower(), ctx=prs(**dprs))
 
     @dispatch('globaluserstate')  # I usually format display_name to user but I don't want to do that with GUS
-    async def handle_globaluserstate(self, ctx: GLOBALUSERSTATE):  # ALWAYS SET THIS
+    async def handle_globaluserstate(self, ctx: hints.GLOBALUSERSTATE):  # ALWAYS SET THIS
         dprs = ctx.__dict__
         dprs['user'] = ctx.display_name
         del dprs['display_name']
@@ -324,7 +324,7 @@ class Session(object):
         self.state = ctx
 
     @dispatch('privmsg')
-    async def handle_privmsg(self, ctx: Union[PRIVMSG, USERSTATE]):
+    async def handle_privmsg(self, ctx: Union[hints.PRIVMSG, hints.USERSTATE]):
         if not self.any_listeners('message'): return
         dprs = ctx.__dict__
         if hasattr(ctx, 'display_name'):
@@ -332,7 +332,7 @@ class Session(object):
             del dprs['display_name']
         dprs['send'] = self.proxy_send_obj(ctx.channel)
         dprs['action'] = True if hasattr(ctx, 'message') and 'ACTION' in ctx.message and SOH in ctx.message else False
-        dprs['message'] = Message(dprs['user'], ctx.channel, ctx.message[len(SOH + 'ACTION '):-len(SOH)] if dprs['action'] else ctx.message)
+        dprs['message'] = hints.Message(dprs['user'], ctx.channel, ctx.message[len(SOH + 'ACTION '):-len(SOH)] if dprs['action'] else ctx.message)
         prs = make_dataclass(type(ctx).__name__, [tuple([k, v]) for k, v in dprs.items()])(**dprs)
         if prs.action:
             await self.call_listeners('message:action', ctx=prs)
@@ -340,7 +340,7 @@ class Session(object):
         await self.call_listeners('message', ctx=prs)
 
     @dispatch('userstate')
-    async def handle_userstate(self, ctx: Union[PRIVMSG, USERSTATE]):
+    async def handle_userstate(self, ctx: Union[hints.PRIVMSG, hints.USERSTATE]):
         if not self.any_listeners('userstate'): return
         dprs = ctx.__dict__
         if hasattr(ctx, 'display_name'):
@@ -374,7 +374,7 @@ class Session(object):
 
         if ctx.msg_id in ('sub', 'resub', 'extendsub', 'primepaidupgrade', 'communitypayforward', 'standardpayforward',
                           'subgift', 'anonsubgift', 'submysterygift', 'giftpaidupgrade', 'anongiftpaidupgrade'):
-            dprs['message'] = Message(dprs['user'], ctx.channel, ctx.message if hasattr(ctx, 'message') else None)
+            dprs['message'] = hints.Message(dprs['user'], ctx.channel, ctx.message if hasattr(ctx, 'message') else None)
             prs = make_dataclass('SUBSCRIPTION', [tuple([k, v]) for k, v in dprs.items()])(**dprs)
             await self.call_listeners(f'sub:{prs.msg_id}', ctx=prs)  # this covers anysub, just use "sub" as the event
 
@@ -440,7 +440,7 @@ class Session(object):
         await self.call_listeners('hosttarget', ctx=prs)  # this is sent regardless of focus
         await self.call_listeners(focus, ctx=prs)
 
-    # Refactor this function to reduce its Cognitive Complexity from 43 to the 15 allowed. Note: I'm not gonna try to reduce the complexity.
+    # This is a complex function, and it has a high "Cognitive Complexity", beyond the limit of 15.
     def start(self, token, nick, channels=None) -> None:
         self.token = token
         self.nick = nick
@@ -468,7 +468,7 @@ class Session(object):
                             log.debug(line)
                             log.debug(notice)
                         try:
-                            notice = self.TwitchIRCFormatter(line)
+                            notice = self.twitch_irc_formatter(line)
                         except Exception as exc:
                             log.exception(exc)
                             log.debug(line)
@@ -540,7 +540,7 @@ class Session(object):
             log.info(f'Left {c}')
 
     @event('message', 'sub')
-    async def log_messageable(self, ctx: Messageable) -> None:
+    async def log_messageable(self, ctx: hints.Messageable) -> None:
         log.info(f'{type(ctx).__name__} {ctx.message.channel} >>> {ctx.message.author}: {ctx.message.content}')
 
     def attempt(self, func, *args, **kwargs) -> Any:
