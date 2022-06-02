@@ -89,7 +89,7 @@ class Elenabot(Session):
         @channel('zaquelle')
         @cooldown(5)  # 5 second cooldown
         async def on_zaq_sub(self, ctx: hints.SUBSCRIPTION):
-            await ctx.send(f"{self.fill_msg('zaqHeart', 162, 404)}")
+            await ctx.send(f"{self.fill_msg('zaqHeart ', 162, 404)}")
             # await ctx.send(f"{self.maximize_msg('zaqHeart zaqWiggle ', random.randint(50, 100))}zaqHeart")  # len 17
             log.debug(ctx)
 
