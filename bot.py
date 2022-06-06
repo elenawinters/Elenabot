@@ -160,14 +160,23 @@ class Elenabot(Session):
         @channel('zaquelle')
         @message('catJAM', 'in')
         @cooldown(90)
-        async def zaq_is_pog(self, ctx: hints.PRIVMSG):
+        async def zaq_is_catjam(self, ctx: hints.PRIVMSG):
             await ctx.send('catJAM')
+
+        @event('message')
+        @author('beruru')
+        @channel('zaquelle')
+        @message('zaqWiggle', 'in')
+        @cooldown(30)
+        async def beru_double_wiggle(self, ctx: hints.PRIVMSG):
+            await ctx.send('zaqWiggle zaqWiggle')
 
         @event('message')
         @channel('zaquelle')
         @message('zaqWiggle', 'in')
         @cooldown(90)
-        async def zaq_is_pog(self, ctx: hints.PRIVMSG):
+        async def zaq_is_wiggle(self, ctx: hints.PRIVMSG):
+            if ctx.message.author.lower() == 'beruru': return
             await ctx.send('zaqWiggle')
 
         @event('message')
