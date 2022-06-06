@@ -331,7 +331,7 @@ class Session(object):
             dprs['user'] = ctx.display_name
             del dprs['display_name']
         dprs['send'] = self.proxy_send_obj(ctx.channel)
-        dprs['action'] = True if hasattr(ctx, 'message') and 'ACTION' in ctx.message and SOH in ctx.message else False
+        dprs['action'] = True if 'ACTION' in ctx.message and SOH in ctx.message else False
         dprs['message'] = hints.Message(dprs['user'], ctx.channel, ctx.message[len(SOH + 'ACTION '):-len(SOH)] if dprs['action'] else ctx.message)
         prs = make_dataclass(type(ctx).__name__, [tuple([k, v]) for k, v in dprs.items()])(**dprs)
         if prs.action:
