@@ -245,7 +245,7 @@ class Session(object):
                     if v == '':
                         v = None
                     elif rx_positive.match(v) or re.match(r'^-\d+$', v):  # there is a positive and negative version cuz regex
-                        v = int(v)
+                        v = int(v)  # ^\d+$|^-\d+$
                     elif v == 'false':
                         v = False
                     elif v == 'true':

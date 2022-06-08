@@ -89,15 +89,14 @@ class Elenabot(Session):
         @channel('zaquelle')
         @cooldown(5)  # 5 second cooldown
         async def on_zaq_sub(self, ctx: hints.SUBSCRIPTION):
-            await ctx.send(f"{self.fill_msg('zaqHeart ', random.randint(162, 404))}")
+            await ctx.send(self.fill_msg('zaqHeart ', random.randint(162, 404)))
             # await ctx.send(f"{self.maximize_msg('zaqHeart zaqWiggle ', random.randint(50, 100))}zaqHeart")  # len 17
             log.debug(ctx)
 
         @event('raid')
         @channel('zaquelle')
         async def on_zaq_raid(self, ctx: hints.RAID):
-            raid_msg = f"Incoming raid! {ctx.raider} is sending {ctx.viewers} raiders our way! raccPog raccPog raccPog"
-            await ctx.send(raid_msg)
+            await ctx.send(f"Incoming raid! {ctx.raider} is sending {ctx.viewers} raiders our way! raccPog raccPog raccPog")
             log.debug(ctx)
 
         @event('message')
@@ -189,8 +188,11 @@ class Elenabot(Session):
         @event('message')
         @channel('zaquelle')
         @message('zaqCool', 'in')
-        @cooldown(120)
+        @cooldown(60)
         async def zaq_is_cool(self, ctx: hints.PRIVMSG):
+            if 'zaqCoolCop' in ctx.message.content:
+                await ctx.send('zaqCoolCop')
+                return
             await ctx.send('zaqCool')
 
         @event('message')
@@ -311,7 +313,7 @@ class Elenabot(Session):
         @channel('zaquelle')
         @message('zaqPop', 'in')
         @cooldown(60)
-        async def zaq_nom(self, ctx: hints.PRIVMSG):
+        async def zaq_pop(self, ctx: hints.PRIVMSG):
             await ctx.send('zaqPop')
 
         @event('message')
