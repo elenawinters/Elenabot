@@ -77,8 +77,9 @@ class Elenabot(Session):
             if self.last_raided != ctx.channel and self.last_raider != '#zaquelle': return
             if 'zaqWiggle' in ctx.message.content:
                 await ctx.send(self.fill_msg('zaqWiggle ', 320))
-                self.auto_reconnect = False
-                await self.sock.close()
+                await self.part(ctx.channel)
+                # self.auto_reconnect = False
+                # await self.sock.close()
 
         @event('ritual:new_chatter')
         @channel('zaquelle')
@@ -98,6 +99,20 @@ class Elenabot(Session):
         async def on_zaq_raid(self, ctx: hints.RAID):
             await ctx.send(f"Incoming raid! {ctx.raider} is sending {ctx.viewers} raiders our way! raccPog raccPog raccPog")
             log.debug(ctx)
+
+        @event('message')
+        @channel('zaquelle')
+        @message('GIGAHAYES', 'in')
+        @cooldown(120)
+        async def zaq_GIGAHAYES(self, ctx: hints.PRIVMSG):
+            await ctx.send('GIGAHAYES')
+
+        @event('message')
+        @channel('zaquelle')
+        @message('VIBE', 'in')
+        @cooldown(120)
+        async def zaq_vibe(self, ctx: hints.PRIVMSG):
+            await ctx.send('VIBE')
 
         @event('message')
         @channel('zaquelle')
@@ -287,6 +302,13 @@ class Elenabot(Session):
         @message('zaqT THIS IS YOUR REMINDER TO DRINK WATER OR SOME SORT OF LIQUID BECAUSE YOUR BODY NEEDS IT AND SHIT zaqT')
         async def drink_water_zaq(self, ctx: hints.PRIVMSG):
             await ctx.send('zaqT')
+
+        @event('message')
+        @channel('zaquelle')
+        @author('nightbot')
+        @message("If you're new to the stream and you're enjoying the content, don't forget to follow the channel to know when I am live! zaqHeart")
+        async def enjoy_content_guys(self, ctx: hints.PRIVMSG):
+            await ctx.send('zaqHeart zaqHeart zaqHeart')
 
         @event('message')
         @channel('zaquelle')

@@ -20,7 +20,9 @@ import aiohttp
 import asyncio
 import inspect
 import logging
+import sqlite3
 import struct
+
 import hints
 import time
 import math
@@ -29,7 +31,14 @@ import re
 
 
 log = logging.getLogger(__name__)
-SOH = chr(1)  # ASCII SOH (Start of Header) Control Character
+SOH = chr(1)  # ASCII SOH (Start of Header) Control Character, used for ACTION events
+
+con = sqlite3.connect('log.sqlite')
+cur = con.cursor()
+
+con.execute('''CREATE TABLE IF NOT EXISTS msg_sent (channel text, message text)''')
+con.execute('''CREATE TABLE IF NOT EXISTS msg_denied (channel text, message text)''')
+con.execute('''CREATE TABLE IF NOT EXISTS outgoing (channel text, message text)''')
 
 
 def event(name: str = 'any', *extras) -> Callable:  # listener/decorator for any event
@@ -213,6 +222,7 @@ class Session(object):
         self.cooldowns = {}
         self.channels = []
         self.joinqueue = Queue()
+        self.outgoing = {}
 
         self.last = ''
 
@@ -296,7 +306,7 @@ class Session(object):
 
     @dispatch(375)
     async def handle_375(self, ctx):
-        log.info(f"Connected! Environment is {'DEBUG' if __debug__ else 'PRODUCTION'}.")
+        log.debug(f"Connected! Environment is {'DEBUG' if __debug__ else 'PRODUCTION'}.")
         loop = asyncio.get_running_loop()
         self.jointask = loop.create_task(self._join())
 
@@ -350,13 +360,21 @@ class Session(object):
         prs = make_dataclass(type(ctx).__name__, [tuple([k, v]) for k, v in dprs.items()])(**dprs)
         await self.call_listeners(type(ctx).__name__.lower(), ctx=prs)
 
-    @dispatch('roomstate', 'notice', 'clearmsg')
+    @dispatch('roomstate', 'clearmsg')
     async def handle_generic(self, ctx):
-        if not self.any_listeners('roomstate', 'notice', 'clearmsg'): return
+        if not self.any_listeners('roomstate', 'clearmsg'): return
         dprs = ctx.__dict__
         dprs['send'] = self.proxy_send_obj(ctx.channel)
         prs = make_dataclass(type(ctx).__name__, [tuple([k, v]) for k, v in dprs.items()])(**dprs)
         await self.call_listeners(type(ctx).__name__.lower(), ctx=prs)
+
+    @dispatch('notice')
+    async def handle_notice(self, ctx):
+        if not self.any_listeners('notice'): return
+        dprs = ctx.__dict__
+        dprs['send'] = self.proxy_send_obj(ctx.channel)
+        prs = make_dataclass(type(ctx).__name__, [tuple([k, v]) for k, v in dprs.items()])(**dprs)
+        await self.call_listeners(f'notice:{ctx.msg_id}', ctx=prs)
 
     @dispatch('usernotice')  # i dont know if i'll add individual listener checks yet. unsure on speed of any_listeners
     async def handle_usernotice(self, ctx):
@@ -440,15 +458,31 @@ class Session(object):
         await self.call_listeners('hosttarget', ctx=prs)  # this is sent regardless of focus
         await self.call_listeners(focus, ctx=prs)
 
+    # @dispatch('reconnect')
+    # async def handle_reconnect(self, ctx):
+    #     await self.call_listeners(type(ctx).__name__.lower(), ctx=ctx)
+    #     await self.sock.close()
+
+    @dispatch('whisper')
+    async def handle_whisper(self, ctx):  # you can not send a whisper from irc so i'm not gonna include a send object
+        if not self.any_listeners('whisper'): return
+        dprs = ctx.__dict__
+        if hasattr(ctx, 'display_name'):
+            dprs['user'] = ctx.display_name
+            del dprs['display_name']
+        dprs['message'] = hints.Message(dprs['user'], ctx.channel, ctx.message if hasattr(ctx, 'message') else None)
+        prs = make_dataclass(type(ctx).__name__, [tuple([k, v]) for k, v in dprs.items()])(**dprs)
+        await self.call_listeners(type(ctx).__name__.lower(), ctx=prs)
+
     # This is a complex function, and it has a high "Cognitive Complexity", beyond the limit of 15.
     def start(self, token, nick, channels=None) -> None:
         self.token = token
         self.nick = nick
 
-        ws_timeout = aiohttp.ClientTimeout()
+        # ws_timeout = aiohttp.ClientTimeout()
 
         async def wsloop():
-            async with aiohttp.ClientSession(timeout=ws_timeout).ws_connect(f'{self.host}:{self.port}') as self.sock:
+            async with aiohttp.ClientSession().ws_connect(f'{self.host}:{self.port}', heartbeat=10) as self.sock:
                 log.debug(f'Attempting to connect to {self.host}:{self.port}')
                 await self.sock.send_str("CAP REQ :twitch.tv/membership twitch.tv/tags twitch.tv/commands")
                 await self.sock.send_str(f"PASS {self.token}")
@@ -464,9 +498,9 @@ class Session(object):
                             if __debug__:
                                 log.info('Server sent PING. We sent PONG.')
                             continue
-                        if 'RECONNECT' in line:
-                            log.debug(line)
-                            log.debug(notice)
+                        elif line == ':tmi.twitch.tv RECONNECT':  # the parser will parse this, but i want it to be very explicitly handled
+                            await self.sock.close()
+                            continue
                         try:
                             notice = self.twitch_irc_formatter(line)
                         except Exception as exc:
@@ -493,12 +527,20 @@ class Session(object):
                     self.jointask.cancel()
                     self.joinqueue = Queue()
 
+        def attempt_connection():
+            success, ret = self.attempt(asyncio.run, wsloop())
+            # if success: return
+
+            log.debug(ret)
+            con.commit()
+            self.attempt(asyncio.run, asyncio.sleep(1))
+
         if not self.auto_reconnect:
-            self.attempt(asyncio.run, wsloop())
+            attempt_connection()
             return
 
         while self.auto_reconnect:
-            self.attempt(asyncio.run, wsloop())
+            attempt_connection()
 
         log.info('Auto Reconnect has been disabled, and the program has stopped.')
 
@@ -519,9 +561,10 @@ class Session(object):
         while True:
             if not self.joinqueue.empty():
                 channel = self.joinqueue.get()
-                c = channel.lower() if channel[0] == '#' else f'#{channel.lower()}'
+                c = channel.lower() if channel[0] == '#' else '#' + channel.lower()
                 await self.sock.send_str(f"JOIN {c}")
                 log.info(f'Joined {c}')
+                self.outgoing[c] = []
 
             await asyncio.sleep(0.5)  # 20 times per 10 seconds
 
@@ -541,15 +584,37 @@ class Session(object):
 
     @event('message', 'sub')
     async def log_messageable(self, ctx: hints.Messageable) -> None:
+        if type(ctx).__name__ == 'PRIVMSG' and ctx.action:
+            log.info(f'ACTION {ctx.message.channel} >>> {ctx.message.author}: {ctx.message.content}')
+            return
         log.info(f'{type(ctx).__name__} {ctx.message.channel} >>> {ctx.message.author}: {ctx.message.content}')
 
+    @event('userstate')
+    async def verify_outgoing_approve(self, ctx):
+        if not self.outgoing[ctx.channel]: return
+        msg = self.outgoing[ctx.channel].pop(0)
+        log.info(f'SENT {ctx.channel} >>> {ctx.user}: {msg}')
+        cur.execute('insert into msg_sent values (?, ?)', (ctx.channel, msg,))
+        con.commit()
+
+    @event('notice')
+    async def verify_outgoing_deny(self, ctx):
+        if not ctx.msg_id.startswith('msg'): return
+        msg = self.outgoing[ctx.channel].pop(0)
+        log.info(f'FAIL {ctx.channel} >>> {self.nick}: {msg}')
+        cur.execute('insert into msg_denied values (?, ?)', (ctx.channel, msg,))
+        con.commit()
+
+    @event('notice')
+    async def log_notices(self, ctx: hints.NOTICE):
+        func = log.info if __debug__ else log.debug
+        func(f'NOTICE({ctx.msg_id}): {ctx.channel} >>> {ctx.message}')
+
     def attempt(self, func, *args, **kwargs) -> Any:
-        output = kwargs.get('output', True)
         try:
-            return func(*args, **kwargs)
+            return True, func(*args, **kwargs)
         except Exception as exc:
-            if not output: return
-            log.exception(exc)
+            return False, exc
 
     def any_listeners(self, *events):  # this is in an attempt to not construct a event object unless there's an event registered
         if __debug__: return True
@@ -585,8 +650,10 @@ class Session(object):
         return True
 
     async def send(self, message: str, channel: str) -> None:
-        if not __debug__:  # since i do a lot of debugging, i dont want to accidentally send something in a chat
-            await self.sock.send_str(f'PRIVMSG {channel} :{message}')  # placement of the : is important :zaqPbt:
+        if __debug__: return  # since i do a lot of debugging, i dont want to accidentally send something in a chat
+        await self.sock.send_str(f'PRIVMSG {channel} :{message}')  # placement of the : is important :zaqPbt:
+        self.outgoing[channel].append(message)
+        cur.execute('insert into outgoing values (?, ?)', (channel, message,))
 
     def maximize_msg(self, content: str, offset: int = 0) -> str:
         return self.fill_msg(content, 500 - offset)
