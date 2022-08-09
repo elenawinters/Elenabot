@@ -9,6 +9,8 @@
         Rinbot by RingoMär
         TwitchDev samples
 
+    Tested on Windows 10 and Ubuntu 22.04
+
 """
 
 from typing import Any, Callable, Union
@@ -38,6 +40,7 @@ cur = con.cursor()
 
 con.execute('''CREATE TABLE IF NOT EXISTS msg_sent (channel text, message text)''')
 con.execute('''CREATE TABLE IF NOT EXISTS msg_denied (channel text, message text)''')
+con.execute('''CREATE TABLE IF NOT EXISTS msg_banned (channel text)''')
 con.execute('''CREATE TABLE IF NOT EXISTS outgoing (channel text, message text)''')
 
 
@@ -529,9 +532,9 @@ class Session(object):
 
         def attempt_connection():
             success, ret = self.attempt(asyncio.run, wsloop())
-            # if success: return
+            if success is not None:
+                log.debug(ret)
 
-            log.debug(ret)
             con.commit()
             self.attempt(asyncio.run, asyncio.sleep(1))
 
@@ -566,21 +569,20 @@ class Session(object):
                 log.info(f'Joined {c}')
                 self.outgoing[c] = []
 
-            await asyncio.sleep(0.5)  # 20 times per 10 seconds
+            await asyncio.sleep(0.5)  # 20 times per 10 seconds, 2 times a second
 
-    async def part(self, channels: Union[list, str]) -> None:  # this is currently untested
+    async def part(self, channels: Union[list, str]) -> None:  # i made it work
         channels = [channels] if isinstance(channels, str) else channels
-
+        channels = [x[1:].lower() if x[0] == '#' else x.lower() for x in channels]
         channels = [chan for chan in channels if chan in self.channels]
         if not channels: return
 
         for chan in channels:
-            self.channels.remove(chan)
-
-        for x in channels:
-            c = x.lower() if x[0] == '#' else f'#{x.lower()}'
+            c = chan.lower() if chan[0] == '#' else f'#{chan.lower()}'
             await self.sock.send_str(f"PART {c}")
             log.info(f'Left {c}')
+
+            self.channels.remove(chan)
 
     @event('message', 'sub')
     async def log_messageable(self, ctx: hints.Messageable) -> None:
@@ -600,6 +602,10 @@ class Session(object):
     @event('notice')
     async def verify_outgoing_deny(self, ctx):
         if not ctx.msg_id.startswith('msg'): return
+        if ctx.msg_id == 'msg_banned':  # ban me bitches, im tired of this throwing errors cuz im on a bot list
+            cur.execute('insert into msg_banned values (?)', (ctx.channel,))
+            con.commit()
+            return
         msg = self.outgoing[ctx.channel].pop(0)
         log.info(f'FAIL {ctx.channel} >>> {self.nick}: {msg}')
         cur.execute('insert into msg_denied values (?, ?)', (ctx.channel, msg,))
