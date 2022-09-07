@@ -1,5 +1,7 @@
 from elenabotlib import Session, event, channel, cooldown, message, author, configure_logger, log
 import configparser
+import datetime
+import asyncio
 import logging
 import random
 import hints
@@ -24,60 +26,66 @@ class Elenabot(Session):
             config.read(config_file)
 
         if __debug__:
-            import gen_stream_list
-            channels = gen_stream_list.ActiveHasroot('gtarp')
-            self.kekchannels = []
+            channels = ['zaquelle']
+            # import gen_stream_list
+            # channels = gen_stream_list.ActiveHasroot('gtarp')
+            # self.kekchannels = []
         else:
             channels = ast.literal_eval(config['twitch']['channels'])
 
         self.start(config['twitch']['oauth'], config['twitch']['nickname'], channels)
 
     if __debug__:
-        @event('join')
-        async def join_debug(self, ctx):
-            if ctx.user == self.nick: return
-            if ctx.user not in self.kekchannels:
-                self.kekchannels.append(ctx.user)
+        # @event('join')
+        # async def join_debug(self, ctx):
+        #     # await self.part(ctx.channel)
+        #     # self.auto_reconnect = False
+        #     # await self.sock.close()
+        #     if ctx.user == self.nick: return
+        #     if ctx.user not in self.kekchannels:
+        #         self.kekchannels.append(ctx.user)
 
-        @event('unhost')
-        async def on_unhost_debug(self, ctx):
-            log.info(f'I have {len(self.kekchannels)} channels in memory right now!')
-            log.info(ctx)
+        # @event('unhost')
+        # async def on_unhost_debug(self, ctx):
+        #     log.info(f'I have {len(self.kekchannels)} channels in memory right now!')
+        #     log.info(ctx)
 
         @event('host')
         async def on_host_debug(self, ctx):
-            log.info(f'I have {len(self.kekchannels)} channels in memory right now!')
-            log.info(ctx)
-            if ctx.channel not in self.kekchannels:
-                self.kekchannels.append(ctx.target)
-            await self.join(ctx.target)
+            log.info(f'Testing depreciation!')
 
         @event('message')
         @channel('burn')
         async def burn_test(self, ctx):
             log.info("BURN'S CHAT BE POPPING OFF")
 
-        @event('cap')
-        async def get_cap(self, ctx):
-            log.debug(ctx)
-
     else:
+        async def raid_timeout(self):
+            self.can_send_raid_msg = True
+            await asyncio.sleep(20)
+            del self.can_send_raid_msg
+
         @event('host')
         @channel('zaquelle')
         async def join_on_raid(self, ctx: hints.HOSTTARGET):
             if ctx.viewers >= 40:
                 log.debug(ctx)
+                loop = asyncio.get_running_loop()
+                loop.create_task(self.raid_timeout())
                 self.last_raided = '#' + ctx.target
                 self.last_raider = ctx.channel
                 await self.join(ctx.target)
 
         @event('message')
         async def raiding_msg(self, ctx: hints.PRIVMSG):
+            if not hasattr(self, 'can_send_raid_msg'): return
             if not hasattr(self, 'last_raided') and not hasattr(self, 'last_raider'): return
             if self.last_raided != ctx.channel and self.last_raider != '#zaquelle': return
             if 'zaqWiggle' in ctx.message.content:
                 await ctx.send(self.fill_msg('zaqWiggle ', 320))
                 await self.part(ctx.channel)
+                del self.last_raided
+                del self.last_raider
                 # self.auto_reconnect = False
                 # await self.sock.close()
 
@@ -99,6 +107,13 @@ class Elenabot(Session):
         async def on_zaq_raid(self, ctx: hints.RAID):
             await ctx.send(f"Incoming raid! {ctx.raider} is sending {ctx.viewers} raiders our way! raccPog raccPog raccPog")
             log.debug(ctx)
+
+        @event('message')
+        @channel('zaquelle')
+        @message('zaqCultist', 'in')
+        @cooldown(90)
+        async def zaq_cultist(self, ctx: hints.PRIVMSG):
+            await ctx.send('zaqCultist')
 
         @event('message')
         @channel('zaquelle')
@@ -189,7 +204,7 @@ class Elenabot(Session):
         @channel('zaquelle')
         @message('zaqWiggle', 'in')
         @cooldown(90)
-        async def zaq_is_wiggle(self, ctx: hints.PRIVMSG):
+        async def zaq_is_wiggle(self, ctx: hints.PRIVMSG):  # i could probably consolidate the above into this but im lazy
             if ctx.message.author.lower() == 'beruru': return
             await ctx.send('zaqWiggle')
 

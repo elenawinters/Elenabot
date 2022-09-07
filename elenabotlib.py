@@ -17,6 +17,7 @@ from typing import Any, Callable, Union
 from dataclasses import make_dataclass
 from queue import Queue
 import traceback
+import functools
 import datetime
 import aiohttp
 import asyncio
@@ -47,11 +48,12 @@ con.execute('''CREATE TABLE IF NOT EXISTS outgoing (channel text, message text)'
 def event(name: str = 'any', *extras) -> Callable:  # listener/decorator for any event
     events = list(extras)
     events.append(name)
+    # print(events)
 
     def wrapper(func: Callable) -> Callable:
-        for event in events:
-            add_listener(func, event)
-        return func
+        # for event in events:
+        #     return add_listener(func, event)
+        return add_listeners(func, events)
     return wrapper
 
 
@@ -60,6 +62,7 @@ events = event
 
 def cooldown(time: int) -> Callable:
     def decorator(func: Callable) -> Callable:
+        @functools.wraps(func)
         def wrapper(self: Session, ctx) -> Callable:
             if self.func_on_cooldown(func, time):
                 # log.debug(f'{func.__name__} is on cooldown!')
@@ -71,6 +74,7 @@ def cooldown(time: int) -> Callable:
 
 def ignore_myself() -> Callable:
     def decorator(func: Callable) -> Callable:
+        @functools.wraps(func)
         def wrapper(self: Session, ctx: hints.Messageable) -> Callable:
             if ctx.user.lower() != self.nick:
                 return func(self, ctx)
@@ -81,6 +85,7 @@ def ignore_myself() -> Callable:
 
 def author(*names) -> Callable:  # check author
     def decorator(func: Callable) -> Callable:
+        @functools.wraps(func)
         def wrapper(self: Session, ctx: hints.Messageable) -> Callable:
             if any(ctx.user.lower() == name.lower() for name in list(names)):
                 return func(self, ctx)
@@ -94,9 +99,10 @@ authors = author
 
 def channel(*names) -> Callable:  # check channel
     def decorator(func: Callable) -> Callable:
+        @functools.wraps(func)
         def wrapper(self: Session, ctx: hints.Messageable) -> Callable:
             def adapt(_name: str) -> str:
-                return _name if _name[0] == '#' else f'#{_name}'
+                return self.merge(_name)
             if any(ctx.channel == adapt(name) for name in list(names)):
                 return func(self, ctx)
             return asyncio.sleep(0)
@@ -105,6 +111,11 @@ def channel(*names) -> Callable:  # check channel
 
 
 channels = channel
+# def wrapper(func: Callable) -> Callable:
+#         for event in events:
+#             add_listener(func, event)
+#         return func
+#     return wrapper
 
 
 # these need to be set to the same thing for a solo compare to check for mode, reference the message decorator below
@@ -146,7 +157,7 @@ def message(*args: tuple, **kwargs: dict) -> Callable:
 
 class DebugFilter(logging.Filter):
     def filter(self, record):
-        if record.levelno >= 40:
+        if record.levelno >= 30:
             return True
         elif record.levelno > 10:
             return False
@@ -183,35 +194,48 @@ def dispatch(*args) -> Callable:  # listener/decorator for any event
     return wrapper
 
 
-def add_listener(func, name='any') -> None:
-    match name:
-        case 'all' | '*':
-            name = 'any'
-        case 'resubscribe' | 'resubscription':
-            name = 'resub'
-        case 'subscribe' | 'subscription':
-            name = 'sub'
-        case 'msg':
-            name = 'message'
+# Adding this make me realize that I may need to split the bot into multiple files.
+# I've prided myself on keeping the lib portable in a single file.
+# But with the removal of hosts, I need to implement the Twitch API eventually.
+def depr_event(date: datetime.datetime, before: str, after: str, events: list) -> Callable:
+    '''
+        Warn the user that the event they are registering is or is about to be depreciated.
+    '''
+    def decorator(func: Callable) -> Callable:
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs) -> Callable:
+            if event := set(args[1]).intersection(events):
+                pretty = {'date': f'{date.strftime("%B %d, %Y")}', 'event': f"'{event.pop()}'"}
+                if date > datetime.datetime.now():
+                    log.warning(before.format(**pretty))
+                else:
+                    log.warning(after.format(**pretty))
+            return func(*args, **kwargs)
+        return wrapper
+    return decorator
 
-    if name not in _listeners:
-        _listeners[name] = [func]
-    else:
-        _listeners[name].append(func)
 
-    """
-        There used to be a logger here, but it's rather finicky.
-        If this program is wrapped, the logs would appear.
-        If the program isn't, the log messages would NOT appear.
-        The botUI.py would log, but the bot.py would not.
+@depr_event(date=datetime.datetime(2022, 10, 3),
+            before='Event {event} will be depreciated by Twitch on {date}. You will no longer be able to hear this event after that date.',
+            after='Event {event} has been depreciated by Twitch as of {date}. You can still listen for the event, but you will never hear a response.',
+            events=['host', 'hosttarget', 'unhost'])
+def add_listeners(func, names=['any']) -> None:
+    # print(names)
+    for name in names:
+        match name:
+            case 'all' | '*':
+                name = 'any'
+            case 'resubscribe' | 'resubscription':
+                name = 'resub'
+            case 'subscribe' | 'subscription':
+                name = 'sub'
+            case 'msg':
+                name = 'message'
 
-        The listeners appended also reference the function right after the event is registered.
-        So, an @event followed by an @message would show the wrapper function inside the message decorator function.
-        But, a single @event would show the actual function.
-
-        The log call has been removed because of these reasons.
-        You can call `len(_listeners)` to get the number of registered events.
-    """
+        if name not in _listeners:
+            _listeners[name] = [func]
+        else:
+            _listeners[name].append(func)
 
 
 rx_positive = re.compile(r'^\d+$')
@@ -564,7 +588,7 @@ class Session(object):
         while True:
             if not self.joinqueue.empty():
                 channel = self.joinqueue.get()
-                c = channel.lower() if channel[0] == '#' else '#' + channel.lower()
+                c = self.merge(channel)
                 await self.sock.send_str(f"JOIN {c}")
                 log.info(f'Joined {c}')
                 self.outgoing[c] = []
@@ -573,12 +597,12 @@ class Session(object):
 
     async def part(self, channels: Union[list, str]) -> None:  # i made it work
         channels = [channels] if isinstance(channels, str) else channels
-        channels = [x[1:].lower() if x[0] == '#' else x.lower() for x in channels]
+        channels = [self.split(x) for x in channels]
         channels = [chan for chan in channels if chan in self.channels]
         if not channels: return
 
         for chan in channels:
-            c = chan.lower() if chan[0] == '#' else f'#{chan.lower()}'
+            c = self.merge(chan)
             await self.sock.send_str(f"PART {c}")
             log.info(f'Left {c}')
 
@@ -615,6 +639,10 @@ class Session(object):
     async def log_notices(self, ctx: hints.NOTICE):
         func = log.info if __debug__ else log.debug
         func(f'NOTICE({ctx.msg_id}): {ctx.channel} >>> {ctx.message}')
+
+    @event('cap')
+    async def get_cap(self, ctx):
+        log.info(ctx)
 
     def attempt(self, func, *args, **kwargs) -> Any:
         try:
@@ -666,3 +694,9 @@ class Session(object):
 
     def fill_msg(self, content: str, length: int = 500) -> str:
         return content * math.trunc(length / len(content))  # need to trunc cuz we always round down
+
+    def merge(self, channel: str):  # name isn't appropriate for use-case
+        return channel.lower() if channel[0] == '#' else '#' + channel.lower()
+
+    def split(self, channel: str):  # name isn't appropriate for use-case
+        return channel[1:].lower() if channel[0] == '#' else channel.lower()
