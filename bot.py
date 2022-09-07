@@ -52,7 +52,11 @@ class Elenabot(Session):
 
         @event('host')
         async def on_host_debug(self, ctx):
-            log.info(f'Testing depreciation!')
+            log.info('Testing depreciation of host')
+
+        @event('midnightsquid')
+        async def midnightsquid_debug(self, ctx):
+            log.info('Testing midnightsquid experiment')
 
         @event('message')
         @channel('burn')
