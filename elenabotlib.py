@@ -15,10 +15,10 @@
 
 from typing import Any, Callable, Union
 from dataclasses import make_dataclass
+from datetime import datetime
 from queue import Queue
 import traceback
 import functools
-import datetime
 import aiohttp
 import asyncio
 import inspect
@@ -197,7 +197,7 @@ def dispatch(*args) -> Callable:  # listener/decorator for any event
 # Adding this make me realize that I may need to split the bot into multiple files.
 # I've prided myself on keeping the lib portable in a single file.
 # But with the removal of hosts, I need to implement the Twitch API eventually.
-def depr_event(date: datetime.datetime, before: str, after: str, events: list) -> Callable:
+def depr_event(date: datetime, before: str, after: str, events: list) -> Callable:
     '''
         Warn the user that the event they are registering is or is about to be depreciated.
     '''
@@ -207,7 +207,7 @@ def depr_event(date: datetime.datetime, before: str, after: str, events: list) -
             if event := set(args[1]).intersection(events):
                 pretty = {'date': f'{date.strftime("%B %d, %Y")}', 'event': event.pop()}
                 prefix = 'DEPRECIATION({event}): '
-                if date > datetime.datetime.now():
+                if date > datetime.now():
                     log.warning(str(prefix + before).format(**pretty))
                 else:
                     log.warning(str(prefix + after).format(**pretty))
@@ -216,7 +216,7 @@ def depr_event(date: datetime.datetime, before: str, after: str, events: list) -
     return decorator
 
 
-def expr_event(message: str, events: list, date: datetime.datetime = datetime.datetime.now()) -> Callable:
+def expr_event(message: str, events: list, date: datetime = datetime.now()) -> Callable:
     '''
         Alert the user that the event they are using is considered experiemental and may be removed at any time.
     '''
@@ -231,7 +231,7 @@ def expr_event(message: str, events: list, date: datetime.datetime = datetime.da
     return decorator
 
 
-@depr_event(date=datetime.datetime(2022, 10, 3),
+@depr_event(date=datetime(2022, 10, 3),
             before='Event \'{event}\' will be depreciated by Twitch on {date}. You will no longer receive this event after that date.',
             after='Event \'{event}\' has been depreciated by Twitch as of {date}. You can still listen for the event, but you will never receive it.',
             events=['host', 'hosttarget', 'unhost'])
@@ -691,7 +691,7 @@ class Session(object):
             await self._lcall('any', **kwargs)
 
     def func_on_cooldown(self, func: Callable, time: int) -> bool:
-        time_now = datetime.datetime.utcnow()
+        time_now = datetime.utcnow()
         if func in self.cooldowns:
             if (time_now - self.cooldowns[func]).seconds >= time:
                 self.cooldowns[func] = time_now

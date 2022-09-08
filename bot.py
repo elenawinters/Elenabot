@@ -1,6 +1,5 @@
 from elenabotlib import Session, event, channel, cooldown, message, author, configure_logger, log
 import configparser
-import datetime
 import asyncio
 import logging
 import random
