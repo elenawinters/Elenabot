@@ -206,10 +206,11 @@ def depr_event(date: datetime.datetime, before: str, after: str, events: list) -
         def wrapper(*args, **kwargs) -> Callable:
             if event := set(args[1]).intersection(events):
                 pretty = {'date': f'{date.strftime("%B %d, %Y")}', 'event': event.pop()}
+                prefix = 'DEPRECIATION({event}): '
                 if date > datetime.datetime.now():
-                    log.warning(before.format(**pretty))
+                    log.warning(str(prefix + before).format(**pretty))
                 else:
-                    log.warning(after.format(**pretty))
+                    log.warning(str(prefix + after).format(**pretty))
             return func(*args, **kwargs)
         return wrapper
     return decorator
@@ -224,17 +225,17 @@ def expr_event(message: str, events: list, date: datetime.datetime = datetime.da
         def wrapper(*args, **kwargs) -> Callable:
             if event := set(args[1]).intersection(events):
                 pretty = {'date': f'{date.strftime("%B %d, %Y")}', 'event': event.pop()}
-                log.warning(message.format(**pretty))
+                log.warning(str('EXPERIMENT({event}): ' + message).format(**pretty))
             return func(*args, **kwargs)
         return wrapper
     return decorator
 
 
 @depr_event(date=datetime.datetime(2022, 10, 3),
-            before='DEPRECIATION({event}): Event \'{event}\' will be depreciated by Twitch on {date}. You will no longer receive this event after that date.',
-            after='DEPRECIATION({event}): Event \'{event}\' has been depreciated by Twitch as of {date}. You can still listen for the event, but you will never receive it.',
+            before='Event \'{event}\' will be depreciated by Twitch on {date}. You will no longer receive this event after that date.',
+            after='Event \'{event}\' has been depreciated by Twitch as of {date}. You can still listen for the event, but you will never receive it.',
             events=['host', 'hosttarget', 'unhost'])
-@expr_event(message='EXPERIMENT({event}): https://help.twitch.tv/s/article/cheering-experiment-2022',
+@expr_event(message='https://help.twitch.tv/s/article/cheering-experiment-2022',
             events=['midnightsquid'])
 def add_listeners(func, names=['any']) -> None:
     # print(names)
