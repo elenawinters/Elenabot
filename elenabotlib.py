@@ -231,12 +231,16 @@ def expr_event(message: str, events: list, date: datetime = datetime.now()) -> C
     return decorator
 
 
+# ORDER OF THESE DECORATORS SHOULD BE IN ORDER OF HAPPENINGS
+@expr_event(message='https://help.twitch.tv/s/article/cheering-experiment-2022',
+            events=['midnightsquid'])
 @depr_event(date=datetime(2022, 10, 3),
             before='Event \'{event}\' will be depreciated by Twitch on {date}. You will no longer receive this event after that date.',
             after='Event \'{event}\' has been depreciated by Twitch as of {date}. You can still listen for the event, but you will never receive it.',
-            events=['host', 'hosttarget', 'unhost'])
-@expr_event(message='https://help.twitch.tv/s/article/cheering-experiment-2022',
-            events=['midnightsquid'])
+            events=['host', 'hosttarget', 'unhost', 'notice:autohost_receive', 'notice:bad_host_error', 'notice:bad_host_hosting',
+                    'notice:bad_host_rate_exceeded', 'notice:bad_host_rejected', 'notice:bad_host_self', 'notice:bad_unhost_error',
+                    'notice:host_off', 'notice:host_on', 'notice:host_receive', 'notice:host_receive_no_count', 'notice:host_target_went_offline',
+                    'notice:hosts_remaining', 'notice:not_hosting', 'notice:usage_host', 'notice:usage_unhost'])
 def add_listeners(func, names=['any']) -> None:
     # print(names)
     for name in names:
