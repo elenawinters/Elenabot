@@ -17,17 +17,12 @@ from typing import Any, Callable, Union
 from dataclasses import make_dataclass
 from datetime import datetime
 from queue import Queue
-import traceback
 import functools
 import aiohttp
 import asyncio
-import inspect
 import logging
-import sqlite3
-import struct
-
+import dataset
 import hints
-import time
 import math
 import sys
 import re
@@ -36,13 +31,13 @@ import re
 log = logging.getLogger(__name__)
 SOH = chr(1)  # ASCII SOH (Start of Header) Control Character, used for ACTION events
 
-con = sqlite3.connect('log.sqlite')
-cur = con.cursor()
+# con = sqlite3.connect('log.sqlite')
+# cur = con.cursor()
 
-con.execute('''CREATE TABLE IF NOT EXISTS msg_sent (channel text, message text)''')
-con.execute('''CREATE TABLE IF NOT EXISTS msg_denied (channel text, message text)''')
-con.execute('''CREATE TABLE IF NOT EXISTS msg_banned (channel text)''')
-con.execute('''CREATE TABLE IF NOT EXISTS outgoing (channel text, message text)''')
+# con.execute('''CREATE TABLE IF NOT EXISTS msg_sent (channel text, message text)''')
+# con.execute('''CREATE TABLE IF NOT EXISTS msg_denied (channel text, message text)''')
+# con.execute('''CREATE TABLE IF NOT EXISTS msg_banned (channel text)''')
+# con.execute('''CREATE TABLE IF NOT EXISTS outgoing (channel text, message text)''')
 
 
 def event(name: str = 'any', *extras) -> Callable:  # listener/decorator for any event
@@ -51,8 +46,6 @@ def event(name: str = 'any', *extras) -> Callable:  # listener/decorator for any
     # print(events)
 
     def wrapper(func: Callable) -> Callable:
-        # for event in events:
-        #     return add_listener(func, event)
         return add_listeners(func, events)
     return wrapper
 
@@ -111,11 +104,6 @@ def channel(*names) -> Callable:  # check channel
 
 
 channels = channel
-# def wrapper(func: Callable) -> Callable:
-#         for event in events:
-#             add_listener(func, event)
-#         return func
-#     return wrapper
 
 
 # these need to be set to the same thing for a solo compare to check for mode, reference the message decorator below
@@ -241,6 +229,10 @@ def expr_event(message: str, events: list, date: datetime = datetime.now()) -> C
                     'notice:bad_host_rate_exceeded', 'notice:bad_host_rejected', 'notice:bad_host_self', 'notice:bad_unhost_error',
                     'notice:host_off', 'notice:host_on', 'notice:host_receive', 'notice:host_receive_no_count', 'notice:host_target_went_offline',
                     'notice:hosts_remaining', 'notice:not_hosting', 'notice:usage_host', 'notice:usage_unhost'])
+# @depr_event(date=datetime(2023, 2, 18),
+#             before='We have found you using \'{event}\'. Twitch will be depreciating several chat commands on {date}. They will be found on the API after this date.',
+#             after='We have found you using \'{event}\'. It can now be found in the API, as it was depreciated from IRC on {date}.',
+#             events=['notice:'])  # this feature is unclear imo. I have no idea if they are gonna remove the notices.
 def add_listeners(func, names=['any']) -> None:
     # print(names)
     for name in names:
@@ -273,11 +265,14 @@ class Session(object):
         self.joinqueue = Queue()
         self.outgoing = {}
 
+        self.dbaddress = None
+
         self.last = ''
 
     # This is a complex function, and it has a high "Cognitive Complexity", beyond the limit of 15.
     def twitch_irc_formatter(self, original: str = '@badge-info=gay/4;badges=lesbian/3,premium/1;user-type=awesome :tmi.twitch.tv GAYMSG #zaquelle :This is kinda gay'):  # tested with every @ based message. parses correctly.
         array = original[1:].split(' ')  # Indexes | 0 = Server, 1 = Notice, 2 = Channel, 3+ = Message (Broken up, use Regex)
+        # ChatGPT says that re.split should be used over a string split for the above. TODO: Test with re.split
         offset = 0
         info = {}
         if original.startswith('@'):
@@ -507,13 +502,8 @@ class Session(object):
         await self.call_listeners('hosttarget', ctx=prs)  # this is sent regardless of focus
         await self.call_listeners(focus, ctx=prs)
 
-    # @dispatch('reconnect')
-    # async def handle_reconnect(self, ctx):
-    #     await self.call_listeners(type(ctx).__name__.lower(), ctx=ctx)
-    #     await self.sock.close()
-
     @dispatch('whisper')
-    async def handle_whisper(self, ctx):  # you can not send a whisper from irc so i'm not gonna include a send object
+    async def handle_whisper(self, ctx):  # you cannot send a whisper from irc so i'm not gonna include a send object
         if not self.any_listeners('whisper'): return
         dprs = ctx.__dict__
         if hasattr(ctx, 'display_name'):
@@ -528,7 +518,18 @@ class Session(object):
         self.token = token
         self.nick = nick
 
-        # ws_timeout = aiohttp.ClientTimeout()
+        if not self.dbaddress:
+            self.dbaddress = 'sqlite:///elenabot.sqlite'  # default
+
+        self.database = dataset.connect(self.dbaddress, engine_kwargs={'pool_recycle': 3600})
+
+        tab = self.database.create_table('incoming')
+        # tab.create_column('timestamp', self.database.types.datetime(6))
+        tab.create_column_by_example('timestamp', datetime.utcnow())
+        try:  # we want this but things like SQLite don't do this so yeah
+            self.database.query("ALTER TABLE `incoming` COLLATE='utf8mb4_unicode_ci', CHANGE COLUMN `timestamp` `timestamp` DATETIME(6) NULL DEFAULT NULL AFTER `id`;")
+        except Exception:
+            pass
 
         async def wsloop():
             async with aiohttp.ClientSession().ws_connect(f'{self.host}:{self.port}', heartbeat=10) as self.sock:
@@ -581,7 +582,7 @@ class Session(object):
             if success is not None:
                 log.debug(ret)
 
-            con.commit()
+            # con.commit()
             self.attempt(asyncio.run, asyncio.sleep(1))
 
         if not self.auto_reconnect:
@@ -630,6 +631,19 @@ class Session(object):
 
             self.channels.remove(chan)
 
+    @event('any')
+    async def log_incoming(self, ctx):
+        if type(ctx).__name__ in ['JOIN', 'PART']:
+            return
+        channel = None
+        if hasattr(ctx, 'channel'):
+            channel = ctx.channel
+        self.database['incoming'].insert(dict(
+            timestamp=datetime.utcnow(),
+            channel=channel,
+            event=str(ctx)
+        ))
+
     @event('message', 'sub')
     async def log_messageable(self, ctx: hints.Messageable) -> None:
         if type(ctx).__name__ == 'PRIVMSG' and ctx.action:
@@ -642,20 +656,20 @@ class Session(object):
         if not self.outgoing[ctx.channel]: return
         msg = self.outgoing[ctx.channel].pop(0)
         log.info(f'SENT {ctx.channel} >>> {ctx.user}: {msg}')
-        cur.execute('insert into msg_sent values (?, ?)', (ctx.channel, msg,))
-        con.commit()
+        # cur.execute('insert into msg_sent values (?, ?)', (ctx.channel, msg,))
+        # con.commit()
 
     @event('notice')
     async def verify_outgoing_deny(self, ctx):
         if not ctx.msg_id.startswith('msg'): return
         if ctx.msg_id == 'msg_banned':  # ban me bitches, im tired of this throwing errors cuz im on a bot list
-            cur.execute('insert into msg_banned values (?)', (ctx.channel,))
-            con.commit()
+            # cur.execute('insert into msg_banned values (?)', (ctx.channel,))
+            # con.commit()
             return
         msg = self.outgoing[ctx.channel].pop(0)
         log.info(f'FAIL {ctx.channel} >>> {self.nick}: {msg}')
-        cur.execute('insert into msg_denied values (?, ?)', (ctx.channel, msg,))
-        con.commit()
+        # cur.execute('insert into msg_denied values (?, ?)', (ctx.channel, msg,))
+        # con.commit()
 
     @event('notice')
     async def log_notices(self, ctx: hints.NOTICE):
@@ -709,7 +723,7 @@ class Session(object):
         if __debug__: return  # since i do a lot of debugging, i dont want to accidentally send something in a chat
         await self.sock.send_str(f'PRIVMSG {channel} :{message}')  # placement of the : is important :zaqPbt:
         self.outgoing[channel].append(message)
-        cur.execute('insert into outgoing values (?, ?)', (channel, message,))
+        # cur.execute('insert into outgoing values (?, ?)', (channel, message,))
 
     def maximize_msg(self, content: str, offset: int = 0) -> str:
         return self.fill_msg(content, 500 - offset)

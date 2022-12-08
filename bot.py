@@ -19,18 +19,25 @@ class Elenabot(Session):
                 'channels': ['tmiloadtesting2', 'twitchmedia_qs_10'],  # this is standard list format in the ini file. example: ['elenaberry']
                 'nickname': 'your_lowercase_username'
             }
+            config['db'] = {
+                'address': None
+            }
             with open(config_file, 'w') as configfile:
                 config.write(configfile)
         else:
             config.read(config_file)
 
         if __debug__:
-            channels = ['zaquelle']
-            # import gen_stream_list
-            # channels = gen_stream_list.ActiveHasroot('gtarp')
+            # channels = ['zaquelle']
+            import gen_stream_list
+            channels = gen_stream_list.ActiveHasroot('gtarp')
+            # if 'zaquelle' in channels:
+            #     channels.remove('zaquelle')
+            # self.dbaddress = config['db']['address'] + '_dev'
             # self.kekchannels = []
         else:
             channels = ast.literal_eval(config['twitch']['channels'])
+            self.dbaddress = config['db']['address']  # overwrite DB Address with the one we want
 
         self.start(config['twitch']['oauth'], config['twitch']['nickname'], channels)
 
@@ -49,9 +56,9 @@ class Elenabot(Session):
         #     log.info(f'I have {len(self.kekchannels)} channels in memory right now!')
         #     log.info(ctx)
 
-        @event('host')
-        async def on_host_debug(self, ctx):
-            log.info('Testing depreciation of host')
+        # @event('host')
+        # async def on_host_debug(self, ctx):
+        #     log.info('Testing depreciation of host')
 
         @event('midnightsquid')
         async def midnightsquid_debug(self, ctx):
@@ -63,34 +70,34 @@ class Elenabot(Session):
             log.info("BURN'S CHAT BE POPPING OFF")
 
     else:
-        async def raid_timeout(self):
-            self.can_send_raid_msg = True
-            await asyncio.sleep(20)
-            del self.can_send_raid_msg
+        # async def raid_timeout(self):
+        #     self.can_send_raid_msg = True
+        #     await asyncio.sleep(20)
+        #     del self.can_send_raid_msg
 
-        @event('host')
-        @channel('zaquelle')
-        async def join_on_raid(self, ctx: hints.HOSTTARGET):
-            if ctx.viewers >= 40:
-                log.debug(ctx)
-                loop = asyncio.get_running_loop()
-                loop.create_task(self.raid_timeout())
-                self.last_raided = '#' + ctx.target
-                self.last_raider = ctx.channel
-                await self.join(ctx.target)
+        # @event('host')
+        # @channel('zaquelle')
+        # async def join_on_raid(self, ctx: hints.HOSTTARGET):
+        #     if ctx.viewers >= 40:
+        #         log.debug(ctx)
+        #         loop = asyncio.get_running_loop()
+        #         loop.create_task(self.raid_timeout())
+        #         self.last_raided = '#' + ctx.target
+        #         self.last_raider = ctx.channel
+        #         await self.join(ctx.target)
 
-        @event('message')
-        async def raiding_msg(self, ctx: hints.PRIVMSG):
-            if not hasattr(self, 'can_send_raid_msg'): return
-            if not hasattr(self, 'last_raided') and not hasattr(self, 'last_raider'): return
-            if self.last_raided != ctx.channel and self.last_raider != '#zaquelle': return
-            if 'zaqWiggle' in ctx.message.content:
-                await ctx.send(self.fill_msg('zaqWiggle ', 320))
-                await self.part(ctx.channel)
-                del self.last_raided
-                del self.last_raider
-                # self.auto_reconnect = False
-                # await self.sock.close()
+        # @event('message')
+        # async def raiding_msg(self, ctx: hints.PRIVMSG):
+        #     if not hasattr(self, 'can_send_raid_msg'): return
+        #     if not hasattr(self, 'last_raided') and not hasattr(self, 'last_raider'): return
+        #     if self.last_raided != ctx.channel and self.last_raider != '#zaquelle': return
+        #     if 'zaqWiggle' in ctx.message.content:
+        #         await ctx.send(self.fill_msg('zaqWiggle ', 320))
+        #         await self.part(ctx.channel)
+        #         del self.last_raided
+        #         del self.last_raider
+        #         # self.auto_reconnect = False
+        #         # await self.sock.close()
 
         @event('ritual:new_chatter')
         @channel('zaquelle')
@@ -110,6 +117,13 @@ class Elenabot(Session):
         async def on_zaq_raid(self, ctx: hints.RAID):
             await ctx.send(f"Incoming raid! {ctx.raider} is sending {ctx.viewers} raiders our way! raccPog raccPog raccPog")
             log.debug(ctx)
+
+        @event('message')
+        @channel('zaquelle')
+        @message('zaqShy', 'in')
+        @cooldown(90)
+        async def zaq_shy(self, ctx: hints.PRIVMSG):
+            await ctx.send('zaqShy')
 
         @event('message')
         @channel('zaquelle')
@@ -289,7 +303,7 @@ class Elenabot(Session):
         @message('!ping', 'sw')
         async def lol_you_thought(self, ctx: hints.PRIVMSG):
             pick = ["I may be a bot but you can't just ping me like that zaqK", 'Gimme your fingers zaqK',
-                    f"c'mere {ctx.display_name} zaqK", 'ping me daddy zaqLewd', "i've been pinged AYAYA"]
+                    f"c'mere {ctx.user} zaqK", 'ping me daddy zaqLewd', "i've been pinged AYAYA"]
             await ctx.send(random.choice(pick))
 
         @event('message')
