@@ -14,7 +14,8 @@
 """
 
 from typing import Any, Callable, Union
-from dataclasses import make_dataclass
+from dataclasses import make_dataclass, asdict
+from sqlalchemy.types import LargeBinary
 from datetime import datetime
 from queue import Queue
 import functools
@@ -22,7 +23,9 @@ import aiohttp
 import asyncio
 import logging
 import dataset
+import msgpack
 import hints
+import json
 import math
 import sys
 import re
@@ -229,10 +232,6 @@ def expr_event(message: str, events: list, date: datetime = datetime.now()) -> C
                     'notice:bad_host_rate_exceeded', 'notice:bad_host_rejected', 'notice:bad_host_self', 'notice:bad_unhost_error',
                     'notice:host_off', 'notice:host_on', 'notice:host_receive', 'notice:host_receive_no_count', 'notice:host_target_went_offline',
                     'notice:hosts_remaining', 'notice:not_hosting', 'notice:usage_host', 'notice:usage_unhost'])
-# @depr_event(date=datetime(2023, 2, 18),
-#             before='We have found you using \'{event}\'. Twitch will be depreciating several chat commands on {date}. They will be found on the API after this date.',
-#             after='We have found you using \'{event}\'. It can now be found in the API, as it was depreciated from IRC on {date}.',
-#             events=['notice:'])  # this feature is unclear imo. I have no idea if they are gonna remove the notices.
 def add_listeners(func, names=['any']) -> None:
     # print(names)
     for name in names:
@@ -260,14 +259,14 @@ class Session(object):
         self.auto_reconnect = True
         self.host = 'ws://irc-ws.chat.twitch.tv'
         self.port = 80
-        self.cooldowns = {}
-        self.channels = []
-        self.joinqueue = Queue()
-        self.outgoing = {}
+        self.__cooldowns = {}
+        self.__channels = []
+        self.__joinqueue = Queue()
+        self.__outgoing = {}
+
+        self.__proxies = {}
 
         self.dbaddress = None
-
-        self.last = ''
 
     # This is a complex function, and it has a high "Cognitive Complexity", beyond the limit of 15.
     def twitch_irc_formatter(self, original: str = '@badge-info=gay/4;badges=lesbian/3,premium/1;user-type=awesome :tmi.twitch.tv GAYMSG #zaquelle :This is kinda gay'):  # tested with every @ based message. parses correctly.
@@ -320,9 +319,12 @@ class Session(object):
         return prs(**info)
 
     def proxy_send_obj(self, channel: str):
-        async def _send_proxy(message: str):  # construct send function that can be called from ctx)
-            await self.send(message, channel)
-        return _send_proxy
+        if channel not in self.__proxies:
+            async def _send_proxy(message: str):  # construct send function that can be called from ctx)
+                await self.send(message, channel)
+
+            self.__proxies[channel] = _send_proxy
+        return self.__proxies[channel]
 
     @dispatch(1, 2, 3, 4, 372, 376, 366)
     async def sinkhole(self, ctx):  # I'm not currently parsing these as I don't need to.
@@ -352,7 +354,7 @@ class Session(object):
     async def handle_375(self, ctx):
         log.debug(f"Connected! Environment is {'DEBUG' if __debug__ else 'PRODUCTION'}.")
         loop = asyncio.get_running_loop()
-        self.jointask = loop.create_task(self._join())
+        self.__jointask = loop.create_task(self._join())
 
     @dispatch(421)  # UNKNOWN IRC COMMAND
     async def unknown_command_irc(self, ctx):
@@ -526,6 +528,10 @@ class Session(object):
         tab = self.database.create_table('incoming')
         # tab.create_column('timestamp', self.database.types.datetime(6))
         tab.create_column_by_example('timestamp', datetime.utcnow())
+        tab.create_column_by_example('channel', self.nick)
+        tab.create_column_by_example('event', self.nick)
+        tab.create_column('data', LargeBinary())
+        # tab.create_column_by_example('event', b'')
         try:  # we want this but things like SQLite don't do this so yeah
             self.database.query("ALTER TABLE `incoming` COLLATE='utf8mb4_unicode_ci', CHANGE COLUMN `timestamp` `timestamp` DATETIME(6) NULL DEFAULT NULL AFTER `id`;")
         except Exception:
@@ -574,8 +580,8 @@ class Session(object):
 
                 log.info('WebSocket has been closed!')
                 if hasattr(self, 'jointask'):
-                    self.jointask.cancel()
-                    self.joinqueue = Queue()
+                    self.__jointask.cancel()
+                    self.__joinqueue = Queue()
 
         def attempt_connection():
             success, ret = self.attempt(asyncio.run, wsloop())
@@ -597,31 +603,31 @@ class Session(object):
     async def join(self, channels: Union[list, str]):
         channels = [channels] if isinstance(channels, str) else channels
 
-        channels = [chan for chan in channels if chan not in self.channels]
+        channels = [chan for chan in channels if chan not in self.__channels]
         if not channels:
-            if hasattr(self, 'jointask') and self.jointask.done():
-                for chan in self.channels:
-                    self.joinqueue.put(chan)
+            if hasattr(self, 'jointask') and self.__jointask.done():
+                for chan in self.__channels:
+                    self.__joinqueue.put(chan)
             return
         for chan in channels:
-            self.channels.append(chan)
-            self.joinqueue.put(chan)
+            self.__channels.append(chan)
+            self.__joinqueue.put(chan)
 
     async def _join(self) -> None:  # i dont like this, but there's no other way to really do this
         while True:
-            if not self.joinqueue.empty():
-                channel = self.joinqueue.get()
+            if not self.__joinqueue.empty():
+                channel = self.__joinqueue.get()
                 c = self.merge(channel)
                 await self.sock.send_str(f"JOIN {c}")
                 log.info(f'Joined {c}')
-                self.outgoing[c] = []
+                self.__outgoing[c] = []
 
             await asyncio.sleep(0.5)  # 20 times per 10 seconds, 2 times a second
 
     async def part(self, channels: Union[list, str]) -> None:  # i made it work
         channels = [channels] if isinstance(channels, str) else channels
         channels = [self.split(x) for x in channels]
-        channels = [chan for chan in channels if chan in self.channels]
+        channels = [chan for chan in channels if chan in self.__channels]
         if not channels: return
 
         for chan in channels:
@@ -629,7 +635,7 @@ class Session(object):
             await self.sock.send_str(f"PART {c}")
             log.info(f'Left {c}')
 
-            self.channels.remove(chan)
+            self.__channels.remove(chan)
 
     @event('any')
     async def log_incoming(self, ctx):
@@ -638,10 +644,14 @@ class Session(object):
         channel = None
         if hasattr(ctx, 'channel'):
             channel = ctx.channel
+        event_data = asdict(ctx)
+        if 'send' in event_data: 
+            del event_data['send']
         self.database['incoming'].insert(dict(
             timestamp=datetime.utcnow(),
             channel=channel,
-            event=str(ctx)
+            event=str(ctx),
+            data=msgpack.packb({type(ctx).__name__: event_data})
         ))
 
     @event('message', 'sub')
@@ -653,8 +663,8 @@ class Session(object):
 
     @event('userstate')
     async def verify_outgoing_approve(self, ctx):
-        if not self.outgoing[ctx.channel]: return
-        msg = self.outgoing[ctx.channel].pop(0)
+        if not self.__outgoing[ctx.channel]: return
+        msg = self.__outgoing[ctx.channel].pop(0)
         log.info(f'SENT {ctx.channel} >>> {ctx.user}: {msg}')
         # cur.execute('insert into msg_sent values (?, ?)', (ctx.channel, msg,))
         # con.commit()
@@ -666,7 +676,7 @@ class Session(object):
             # cur.execute('insert into msg_banned values (?)', (ctx.channel,))
             # con.commit()
             return
-        msg = self.outgoing[ctx.channel].pop(0)
+        msg = self.__outgoing[ctx.channel].pop(0)
         log.info(f'FAIL {ctx.channel} >>> {self.nick}: {msg}')
         # cur.execute('insert into msg_denied values (?, ?)', (ctx.channel, msg,))
         # con.commit()
@@ -710,19 +720,19 @@ class Session(object):
 
     def func_on_cooldown(self, func: Callable, time: int) -> bool:
         time_now = datetime.utcnow()
-        if func in self.cooldowns:
-            if (time_now - self.cooldowns[func]).seconds >= time:
-                self.cooldowns[func] = time_now
+        if func in self.__cooldowns:
+            if (time_now - self.__cooldowns[func]).seconds >= time:
+                self.__cooldowns[func] = time_now
                 return False
         else:
-            self.cooldowns[func] = time_now
+            self.__cooldowns[func] = time_now
             return False
         return True
 
     async def send(self, message: str, channel: str) -> None:
         if __debug__: return  # since i do a lot of debugging, i dont want to accidentally send something in a chat
         await self.sock.send_str(f'PRIVMSG {channel} :{message}')  # placement of the : is important :zaqPbt:
-        self.outgoing[channel].append(message)
+        self.__outgoing[channel].append(message)
         # cur.execute('insert into outgoing values (?, ?)', (channel, message,))
 
     def maximize_msg(self, content: str, offset: int = 0) -> str:
