@@ -579,7 +579,7 @@ class Session(object):
                             log.debug("WE'VE TRIED TO MAKE IT WORK FOR YOU THIS TIME.\nPLEASE CONTACT THE DEVELOPER.")
 
                 log.info('WebSocket has been closed!')
-                if hasattr(self, 'jointask'):
+                if hasattr(self, '__jointask'):
                     self.__jointask.cancel()
                     self.__joinqueue = Queue()
 

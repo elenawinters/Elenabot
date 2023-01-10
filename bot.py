@@ -99,6 +99,17 @@ class Elenabot(Session):
         #         # self.auto_reconnect = False
         #         # await self.sock.close()
 
+        @event('message')
+        @channel('zaquelle')
+        @author('the33rd')
+        async def not_today_33rd(self, ctx: hints.PRIVMSG):
+            if not hasattr(self, 'last_33rd'):
+                self.last_33rd = None
+
+            if self.last_33rd == 'zaqWiggle zaqWiggle' and ctx.message.content == 'zaqWiggle zaqWiggle zaqWiggle':
+                ctx.send("According to all known laws of aviation, there is no way a bee should be able to fly. Its wings are too small to get its fat little body off the ground. The bee, of course, flies anyway because bees don't care what humans think is impossible.")
+            self.last_33rd = ctx.message.content
+
         @event('ritual:new_chatter')
         @channel('zaquelle')
         async def new_zaqpaq_chatter(self, ctx: hints.RITUAL):
