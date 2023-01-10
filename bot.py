@@ -1,6 +1,5 @@
 from elenabotlib import Session, event, channel, cooldown, message, author, configure_logger, log
 import configparser
-import asyncio
 import logging
 import random
 import hints
@@ -103,10 +102,10 @@ class Elenabot(Session):
         @channel('zaquelle')
         @author('the33rd')
         async def not_today_33rd(self, ctx: hints.PRIVMSG):
-            if not hasattr(self, 'last_33rd'):
-                self.last_33rd = None
+            if not hasattr(self, 'last_33rd'): self.last_33rd = None
 
-            if self.last_33rd == 'zaqWiggle zaqWiggle' and ctx.message.content == 'zaqWiggle zaqWiggle zaqWiggle':
+            # The send message has a 50% chance to succeed. This ensures it's not always happening and therefore being a nuisance.
+            if self.last_33rd == 'zaqWiggle zaqWiggle' and ctx.message.content == 'zaqWiggle zaqWiggle zaqWiggle' and random.choice((True, False)):
                 ctx.send("According to all known laws of aviation, there is no way a bee should be able to fly. Its wings are too small to get its fat little body off the ground. The bee, of course, flies anyway because bees don't care what humans think is impossible.")
             self.last_33rd = ctx.message.content
 

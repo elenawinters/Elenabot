@@ -25,7 +25,6 @@ import logging
 import dataset
 import msgpack
 import hints
-import json
 import math
 import sys
 import re
