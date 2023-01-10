@@ -353,7 +353,7 @@ class Session(object):
     async def handle_375(self, ctx):
         log.debug(f"Connected! Environment is {'DEBUG' if __debug__ else 'PRODUCTION'}.")
         loop = asyncio.get_running_loop()
-        self.__jointask = loop.create_task(self._join())
+        self.jointask = loop.create_task(self._join())
 
     @dispatch(421)  # UNKNOWN IRC COMMAND
     async def unknown_command_irc(self, ctx):
@@ -578,8 +578,8 @@ class Session(object):
                             log.debug("WE'VE TRIED TO MAKE IT WORK FOR YOU THIS TIME.\nPLEASE CONTACT THE DEVELOPER.")
 
                 log.info('WebSocket has been closed!')
-                if hasattr(self, '__jointask'):
-                    self.__jointask.cancel()
+                if hasattr(self, 'jointask'):
+                    self.jointask.cancel()
                     self.__joinqueue = Queue()
 
         def attempt_connection():
@@ -604,7 +604,7 @@ class Session(object):
 
         channels = [chan for chan in channels if chan not in self.__channels]
         if not channels:
-            if hasattr(self, 'jointask') and self.__jointask.done():
+            if hasattr(self, 'jointask') and self.jointask.done():
                 for chan in self.__channels:
                     self.__joinqueue.put(chan)
             return
