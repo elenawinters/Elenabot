@@ -527,6 +527,7 @@ class Session(object):
         tab = self.database.create_table('incoming')
         # tab.create_column('timestamp', self.database.types.datetime(6))
         tab.create_column_by_example('timestamp', datetime.utcnow())
+        # tab.create_column('channel', self.database.types.text())
         tab.create_column_by_example('channel', self.nick)
         tab.create_column_by_example('event', self.nick)
         tab.create_column('data', LargeBinary())

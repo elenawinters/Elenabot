@@ -19,7 +19,7 @@ class Elenabot(Session):
                 'nickname': 'your_lowercase_username'
             }
             config['db'] = {
-                'address': None
+                'address': ''
             }
             with open(config_file, 'w') as configfile:
                 config.write(configfile)
@@ -134,6 +134,13 @@ class Elenabot(Session):
         @cooldown(90)
         async def zaq_shy(self, ctx: hints.PRIVMSG):
             await ctx.send('zaqShy')
+
+        @event('message')
+        @channel('zaquelle')
+        @message('zaqSussy', 'in')
+        @cooldown(90)
+        async def zaq_sussy(self, ctx: hints.PRIVMSG):
+            await ctx.send('zaqSussy')
 
         @event('message')
         @channel('zaquelle')
