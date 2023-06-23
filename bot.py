@@ -69,6 +69,14 @@ class Elenabot(Session):
             log.info("BURN'S CHAT BE POPPING OFF")
 
     else:
+        @event('message')
+        @channel('zaquelle')
+        @message('!quit', 'sw')
+        @cooldown(1)
+        async def elenabot_force_quit(self, ctx: hints.PRIVMSG):
+            self.auto_reconnect = False
+            await ctx.send(f"Elenabot has been forcefully terminated. Auto-reconnect has been disabled. If this is a mistake, please contact {self.nick}. zaqDerp")
+            await self.sock.close()
         # async def raid_timeout(self):
         #     self.can_send_raid_msg = True
         #     await asyncio.sleep(20)
@@ -134,6 +142,13 @@ class Elenabot(Session):
         @cooldown(90)
         async def zaq_shy(self, ctx: hints.PRIVMSG):
             await ctx.send('zaqShy')
+
+        @event('message')
+        @channel('zaquelle')
+        @message('zaqWait', 'in')
+        @cooldown(90)
+        async def zaq_wait(self, ctx: hints.PRIVMSG):
+            await ctx.send('zaqWait')
 
         @event('message')
         @channel('zaquelle')

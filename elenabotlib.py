@@ -3,13 +3,13 @@
 
     Inherit from Session class to use.
 
-    Copyright 2021-present ElenaWinters
+    Copyright 2021-2023 ElenaWinters
     References:
         Twitch IRC Guide
         Rinbot by RingoMär
         TwitchDev samples
 
-    Tested on Windows 10 and Ubuntu 22.04
+    Tested on Windows 11 and Ubuntu 22.04
 
 """
 
@@ -357,11 +357,11 @@ class Session(object):
 
     @dispatch(421)  # UNKNOWN IRC COMMAND
     async def unknown_command_irc(self, ctx):
-        log.debug(f"An IRC command was sent to the server, and they didn't recognize it. Here is what the server told us:\n{ctx}")
+        log.debug(f"An IRC command was sent to the server, but they didn't recognize it. Here is what the server told us:\n{ctx}")
 
     @dispatch('cap')
     async def handle_cap(self, ctx):
-        dprs = ctx.__dict__  # dprs and ctx are linked
+        dprs = ctx.__dict__  # dprs and ctx are linked. changing one changes the other.
         dprs['capabilities'] = re.findall(r'twitch\.tv\/(\w+)', ctx.message)
         dprs['response'] = re.search(r'(\w+) :twitch\.tv\/\w+', ctx.message).group(1)
         del dprs['channel']
@@ -528,9 +528,9 @@ class Session(object):
         # tab.create_column('timestamp', self.database.types.datetime(6))
         tab.create_column_by_example('timestamp', datetime.utcnow())
         # tab.create_column('channel', self.database.types.text())
-        tab.create_column_by_example('channel', self.nick)
-        tab.create_column_by_example('event', self.nick)
-        tab.create_column('data', LargeBinary())
+        tab.create_column_by_example('channel', self.nick) # fails
+        tab.create_column_by_example('event', self.nick) # fails
+        tab.create_column('data', LargeBinary()) # fails
         # tab.create_column_by_example('event', b'')
         try:  # we want this but things like SQLite don't do this so yeah
             self.database.query("ALTER TABLE `incoming` COLLATE='utf8mb4_unicode_ci', CHANGE COLUMN `timestamp` `timestamp` DATETIME(6) NULL DEFAULT NULL AFTER `id`;")
