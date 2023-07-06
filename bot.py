@@ -38,6 +38,8 @@ class Elenabot(Session):
             channels = ast.literal_eval(config['twitch']['channels'])
             self.dbaddress = config['db']['address']  # overwrite DB Address with the one we want
 
+        self.flags.log_hint_differences = True
+
         self.start(config['twitch']['oauth'], config['twitch']['nickname'], channels)
 
     if __debug__:
@@ -126,7 +128,7 @@ class Elenabot(Session):
         @channel('zaquelle')
         @cooldown(5)  # 5 second cooldown
         async def on_zaq_sub(self, ctx: hints.SUBSCRIPTION):
-            await ctx.send(self.fill_msg('zaqHeart ', random.randint(162, 404)))
+            await ctx.send(self.fill_msg('zaqHug zaqHeart ', random.randint(162, 404)))
             # await ctx.send(f"{self.maximize_msg('zaqHeart zaqWiggle ', random.randint(50, 100))}zaqHeart")  # len 17
             log.debug(ctx)
 
@@ -135,6 +137,13 @@ class Elenabot(Session):
         async def on_zaq_raid(self, ctx: hints.RAID):
             await ctx.send(f"Incoming raid! {ctx.raider} is sending {ctx.viewers} raiders our way! raccPog raccPog raccPog")
             log.debug(ctx)
+
+        @event('message')
+        @channel('zaquelle')
+        @message('ICANT', 'in')
+        @cooldown(120)
+        async def zaq_icant_i_hate_this_emote_so_this_is_in_spite_of_oy(self, ctx: hints.PRIVMSG):
+            await ctx.send('DontCare')
 
         @event('message')
         @channel('zaquelle')

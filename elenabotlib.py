@@ -14,11 +14,12 @@
 """
 
 from typing import Any, Callable, Union
-from dataclasses import make_dataclass, asdict
+from dataclasses import make_dataclass, asdict, dataclass
 from sqlalchemy.types import LargeBinary
 from datetime import datetime
 from queue import Queue
 import functools
+import inspect
 import aiohttp
 import asyncio
 import logging
@@ -253,6 +254,11 @@ def add_listeners(func, names=['any']) -> None:
 rx_positive = re.compile(r'^\d+$')
 
 
+@dataclass
+class SessionFlags:
+    log_hint_differences: bool = False
+
+
 class Session(object):
     def __init__(self) -> None:
         self.auto_reconnect = True
@@ -266,6 +272,9 @@ class Session(object):
         self.__proxies = {}
 
         self.dbaddress = None
+
+        self.flags = SessionFlags()
+        self.flag_storage = {}
 
     # This is a complex function, and it has a high "Cognitive Complexity", beyond the limit of 15.
     def twitch_irc_formatter(self, original: str = '@badge-info=gay/4;badges=lesbian/3,premium/1;user-type=awesome :tmi.twitch.tv GAYMSG #zaquelle :This is kinda gay'):  # tested with every @ based message. parses correctly.
@@ -514,10 +523,62 @@ class Session(object):
         prs = make_dataclass(type(ctx).__name__, [tuple([k, v]) for k, v in dprs.items()])(**dprs)
         await self.call_listeners(type(ctx).__name__.lower(), ctx=prs)
 
+    async def __wsloop(self, channels):  # i've seperated this out so it's easier to read. also using mangling cuz this is a messy function that i dont want people to touch
+        async with aiohttp.ClientSession().ws_connect(f'{self.host}:{self.port}', heartbeat=10) as self.sock:
+            log.debug(f'Attempting to connect to {self.host}:{self.port}')
+            await self.sock.send_str("CAP REQ :twitch.tv/membership twitch.tv/tags twitch.tv/commands")
+            await self.sock.send_str(f"PASS {self.token}")
+            await self.sock.send_str(f"NICK {self.nick}")
+            await self.join(channels)
+            async for msg in self.sock:
+                if msg.type != aiohttp.WSMsgType.TEXT:
+                    log.debug(f'Unknown WSMessage Type: {msg.type}')
+                    continue
+                for line in msg.data.split("\r\n")[:-1]:  # ?!?
+                    if line == 'PING :tmi.twitch.tv':
+                        await self.sock.send_str('PONG :tmi.twitch.tv')
+                        if __debug__:
+                            log.info('Server sent PING. We sent PONG.')
+                        continue
+                    elif line == ':tmi.twitch.tv RECONNECT':  # the parser will parse this, but i want it to be very explicitly handled
+                        await self.sock.close()
+                        continue
+                    try:
+                        notice = self.twitch_irc_formatter(line)
+                    except Exception as exc:
+                        log.exception(exc)
+                        log.debug(line)
+                        continue
+                    name = type(notice).__name__.lower()
+                    if rx_positive.match(name):
+                        name = int(name)
+                    if name in _handlers:
+                        try:
+                            await _handlers[name](self, ctx=notice)
+                        except Exception as exc:
+                            log.exception(exc)
+                            log.debug(notice)
+                    else:  # NOTICE NOT HANDLED, LOG AND NOTIFY
+                        log.debug('THE FOLLOWING NOTICE IS NOT BEING HANDLED PROPERLY.')
+                        log.debug(notice)
+                        await self.call_listeners(type(notice).__name__.lower(), ctx=notice)
+                        log.debug("WE'VE TRIED TO MAKE IT WORK FOR YOU THIS TIME.\nPLEASE CONTACT THE DEVELOPER.")
+
+            log.info('WebSocket has been closed!')
+            if hasattr(self, 'jointask'):
+                self.jointask.cancel()
+                self.__joinqueue = Queue()
+
     # This is a complex function, and it has a high "Cognitive Complexity", beyond the limit of 15.
     def start(self, token, nick, channels=None) -> None:
         self.token = token
         self.nick = nick
+
+        if self.flags.log_hint_differences:
+            self.flag_storage['hint_classes'] = []
+            for _, obj in inspect.getmembers(sys.modules['hints']):
+                if inspect.isclass(obj):
+                    self.flag_storage['hint_classes'].append(obj)
 
         if not self.dbaddress:
             self.dbaddress = 'sqlite:///elenabot.sqlite'  # default
@@ -537,54 +598,8 @@ class Session(object):
         except Exception:
             pass
 
-        async def wsloop():
-            async with aiohttp.ClientSession().ws_connect(f'{self.host}:{self.port}', heartbeat=10) as self.sock:
-                log.debug(f'Attempting to connect to {self.host}:{self.port}')
-                await self.sock.send_str("CAP REQ :twitch.tv/membership twitch.tv/tags twitch.tv/commands")
-                await self.sock.send_str(f"PASS {self.token}")
-                await self.sock.send_str(f"NICK {self.nick}")
-                await self.join(channels)
-                async for msg in self.sock:
-                    if msg.type != aiohttp.WSMsgType.TEXT:
-                        log.debug(f'Unknown WSMessage Type: {msg.type}')
-                        continue
-                    for line in msg.data.split("\r\n")[:-1]:  # ?!?
-                        if line == 'PING :tmi.twitch.tv':
-                            await self.sock.send_str('PONG :tmi.twitch.tv')
-                            if __debug__:
-                                log.info('Server sent PING. We sent PONG.')
-                            continue
-                        elif line == ':tmi.twitch.tv RECONNECT':  # the parser will parse this, but i want it to be very explicitly handled
-                            await self.sock.close()
-                            continue
-                        try:
-                            notice = self.twitch_irc_formatter(line)
-                        except Exception as exc:
-                            log.exception(exc)
-                            log.debug(line)
-                            continue
-                        name = type(notice).__name__.lower()
-                        if rx_positive.match(name):
-                            name = int(name)
-                        if name in _handlers:
-                            try:
-                                await _handlers[name](self, ctx=notice)
-                            except Exception as exc:
-                                log.exception(exc)
-                                log.debug(notice)
-                        else:  # NOTICE NOT HANDLED, LOG AND NOTIFY
-                            log.debug('THE FOLLOWING NOTICE IS NOT BEING HANDLED PROPERLY.')
-                            log.debug(notice)
-                            await self.call_listeners(type(notice).__name__.lower(), ctx=notice)
-                            log.debug("WE'VE TRIED TO MAKE IT WORK FOR YOU THIS TIME.\nPLEASE CONTACT THE DEVELOPER.")
-
-                log.info('WebSocket has been closed!')
-                if hasattr(self, 'jointask'):
-                    self.jointask.cancel()
-                    self.__joinqueue = Queue()
-
         def attempt_connection():
-            success, ret = self.attempt(asyncio.run, wsloop())
+            success, ret = self.attempt(asyncio.run, self.__wsloop(channels))
             if success is not None:
                 log.debug(ret)
 
@@ -697,7 +712,7 @@ class Session(object):
             return False, exc
 
     def any_listeners(self, *events):  # this is in an attempt to not construct a event object unless there's an event registered
-        if __debug__: return True
+        if __debug__ and not self.flags.log_hint_differences: return True
         for event in _listeners:
             if ':' in event:
                 if event.split(':')[0] in events:
@@ -715,8 +730,23 @@ class Session(object):
     async def call_listeners(self, event: str, **kwargs) -> None:  # this is all overcomplicated
         if ':' in event: await self._lcall(event.split(':')[0], **kwargs)  # we call the base event here. simplifies coding subevents
         await self._lcall(event, **kwargs)
-        if 'any' not in event:
+        if 'any' not in event: # I might add some logging here to compare the event to the hints file. Will only be enabled if a flag is set
             await self._lcall('any', **kwargs)
+            if self.flags.log_hint_differences and 'ctx' in kwargs:
+                if hint_class := [x for x in self.flag_storage['hint_classes'] if type(kwargs['ctx']).__name__ == x.__name__]:
+                    if hint_class == []: return
+                    c1 = hint_class[0].__annotations__
+                    # log.info(asdict(hint_class[0]()))
+                    c2 = type(kwargs['ctx']).__annotations__
+                    # log.info(set(hint_class[0].__annotations__) ^ set(type(kwargs['ctx']).__annotations__))
+                    self.database['log_hint_differences'].insert(dict(
+                        classname=hint_class[0].__name__,
+                        difference=set(c2) - set(c1),
+                        c1=c1,
+                        c2=c2
+                    ))
+                    # difference=set(c1) ^ set(c2),
+                # log.info(type(kwargs['ctx']).__name__)
 
     def func_on_cooldown(self, func: Callable, time: int) -> bool:
         time_now = datetime.utcnow()
