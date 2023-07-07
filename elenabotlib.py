@@ -224,7 +224,7 @@ def expr_event(message: str, events: list, date: datetime = datetime.now()) -> C
 
 # ORDER OF THESE DECORATORS SHOULD BE IN ORDER OF HAPPENINGS
 @expr_event(message='https://help.twitch.tv/s/article/cheering-experiment-2022',
-            events=['midnightsquid'])
+            events=['midnightsquid'])  # i don't know if this will ever be depr'd or if it already has
 @depr_event(date=datetime(2022, 10, 3),
             before='Event \'{event}\' will be depreciated by Twitch on {date}. You will no longer receive this event after that date.',
             after='Event \'{event}\' has been depreciated by Twitch as of {date}. You can still listen for the event, but you will never receive it.',
@@ -257,6 +257,12 @@ rx_positive = re.compile(r'^\d+$')
 @dataclass
 class SessionFlags:
     log_hint_differences: bool = False
+    send_in_debug: bool = False
+
+    def __setattr__(self, prop, val):
+        if (old_val := getattr(self, prop)) != val:
+            log.warn(f'WARNING: Flag {prop.upper()} was changed from {old_val} to {val}! This may put the program into an invalid state!')
+        super().__setattr__(prop, val)
 
 
 class Session(object):
@@ -321,7 +327,7 @@ class Session(object):
         if user := re.search(r"(?P<name>[\w]+)!(?P=name)@(?P=name)", array[0 + offset]):
             info['user'] = user.group(1)
 
-        if __debug__:  # include server if in debug mode. this isn't useful for most cases.
+        if __debug__:  # include server if in debug mode. this isn't useful for most cases and i dont wanna properly parse it
             info['server'] = array[0 + offset]
         prs = make_dataclass(array[1 + offset], [tuple([k, v]) for k, v in info.items()])
         return prs(**info)
@@ -760,7 +766,7 @@ class Session(object):
         return True
 
     async def send(self, message: str, channel: str) -> None:
-        if __debug__: return  # since i do a lot of debugging, i dont want to accidentally send something in a chat
+        if __debug__ and not self.flags.send_in_debug:return  # since i do a lot of debugging, i dont want to accidentally send something in a chat
         await self.sock.send_str(f'PRIVMSG {channel} :{message}')  # placement of the : is important :zaqPbt:
         self.__outgoing[channel].append(message)
         # cur.execute('insert into outgoing values (?, ?)', (channel, message,))
