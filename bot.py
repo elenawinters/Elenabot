@@ -48,7 +48,7 @@ class Elenabot(Session):
     @event('message')
     @channel('zaquelle')
     @message('!quit', 'sw')
-    @cooldown(1)
+    @cooldown(10)
     async def elenabot_force_quit(self, ctx: hints.PRIVMSG):
         self.auto_reconnect = False
         await ctx.send(f"Elenabot has been forcefully terminated. Auto-reconnect has been disabled. If this is a mistake, please contact {self.nick}. zaqDerp")

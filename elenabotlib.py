@@ -131,14 +131,13 @@ def message(*args: tuple, **kwargs: dict) -> Callable:
             if not mode:
                 mode = kwargs.get('mode', kwargs.get('m', 'eq'))
             else: mode = mode[0]
-            ignore_self = kwargs.get('ignore_self', True)
 
             possible = list(args)
             if mode in possible:
                 possible.remove(mode)
 
             if any(msg_compare(mode, ctx.message.content, msg) for msg in possible):
-                if ignore_self and ctx.user.lower() == self.nick:
+                if kwargs.get('ignore_self', True) and ctx.user.lower() == self.nick:
                     return asyncio.sleep(0)
                 return func(self, ctx)
             return asyncio.sleep(0)
@@ -291,6 +290,7 @@ class Session(object):
         if original.startswith('@'):
             offset = 1
             for k, v, _ in re.findall(r'([-\w]+)=(.*?)(;| :)', re.split(r'tmi\.twitch\.tv', original)[0]):
+                # log.debug(k)
                 k = k.replace('-', '_')
                 if k in ('badge_info', 'badges'):  # converts for specific fields
                     badges = []
@@ -501,6 +501,7 @@ class Session(object):
         if prs.target is None:
             log.debug(prs)
 
+    # THIS IS A DEPRECIATED EVENT. THIS IS EFFECTIVELY A DEAD CODE PATH.
     @dispatch('hosttarget')  # HOSTTARGET(message='froggirlgaming 6', server='tmi.twitch.tv', channel='#xcup_of_joe')
     async def handle_hosttarget(self, ctx):
         if not self.any_listeners('host', 'unhost', 'hosttarget'): return
@@ -545,6 +546,11 @@ class Session(object):
                         await self.sock.send_str('PONG :tmi.twitch.tv')
                         if __debug__:
                             log.info('Server sent PING. We sent PONG.')
+                        continue
+                    elif line == ':tmi.twitch.tv NOTICE * :Login authentication failed':
+                        log.error('CRITICAL: TWITCH REJECTED OUR LOGIN. THIS IS ON YOU TO FIX. MOST LIKELY YOUR TOKEN IS INVALID.')
+                        self.auto_reconnect = False
+                        await self.sock.close()
                         continue
                     elif line == ':tmi.twitch.tv RECONNECT':  # the parser will parse this, but i want it to be very explicitly handled
                         await self.sock.close()
@@ -766,7 +772,7 @@ class Session(object):
         return True
 
     async def send(self, message: str, channel: str) -> None:
-        if __debug__ and not self.flags.send_in_debug:return  # since i do a lot of debugging, i dont want to accidentally send something in a chat
+        if __debug__ and not self.flags.send_in_debug: return  # since i do a lot of debugging, i dont want to accidentally send something in a chat
         await self.sock.send_str(f'PRIVMSG {channel} :{message}')  # placement of the : is important :zaqPbt:
         self.__outgoing[channel].append(message)
         # cur.execute('insert into outgoing values (?, ?)', (channel, message,))
