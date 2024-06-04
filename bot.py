@@ -109,7 +109,7 @@ class Elenabot(Session):
         # print(self.chatters[ctx.channel])
 
     @event('part')
-    async def elenabot_ban_online_bots(self, ctx: hints.PART):
+    async def elenabot_remove_parted_chatters(self, ctx: hints.PART):
         self.chatters[ctx.channel].remove(ctx.user)
 
 
