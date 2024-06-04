@@ -3,7 +3,7 @@
 
     Inherit from Session class to use.
 
-    Copyright 2021-2023 ElenaWinters
+    Copyright 2021-2024 ElenaWinters
     References:
         Twitch IRC Guide
         Rinbot by RingoMär
@@ -340,14 +340,25 @@ class Session(object):
             self.__proxies[channel] = _send_proxy
         return self.__proxies[channel]
 
-    @dispatch(1, 2, 3, 4, 372, 376, 366)
-    async def sinkhole(self, ctx):  # I'm not currently parsing these as I don't need to.
-        pass
+    # @dispatch(1, 2, 3, 4, 372, 376, 366)
+    # async def sinkhole(self, ctx):  # I'm not currently parsing these as I don't need to.
+    #     print(ctx)
+    #     pass
+
+    @dispatch('ping')
+    async def handle_ping_pong(self, ctx):
+        await self.sock.send_str('PONG :tmi.twitch.tv')
+        # if __debug__:
+        #     log.info('Server sent PING. We sent PONG.')
+        dprs = {'server': ':tmi.twitch.tv'}
+        prs = make_dataclass('ping', [tuple([k, v]) for k, v in dprs.items()])(**dprs)
+        await self.call_listeners('ping', ctx=prs)
 
     @dispatch('join', 'part')
     async def handle_join_part(self, ctx):
         if not self.any_listeners('join', 'part'): return
         dprs = ctx.__dict__
+        dprs['send'] = self.proxy_send_obj(ctx.channel)
         prs = make_dataclass(type(ctx).__name__, [tuple([k, v]) for k, v in dprs.items()])(**dprs)
         if ctx.user == self.nick:
             await self._lcall(f'{type(ctx).__name__.lower()}:self', ctx=prs)
@@ -543,9 +554,13 @@ class Session(object):
                     continue
                 for line in msg.data.split("\r\n")[:-1]:  # ?!?
                     if line == 'PING :tmi.twitch.tv':
-                        await self.sock.send_str('PONG :tmi.twitch.tv')
-                        if __debug__:
-                            log.info('Server sent PING. We sent PONG.')
+                        try:
+                            await _handlers['ping'](self, ctx=line)
+                        except Exception as exc:
+                            log.exception(exc)
+                        # await self.sock.send_str('PONG :tmi.twitch.tv')
+                        # if __debug__:
+                        #     log.info('Server sent PING. We sent PONG.')
                         continue
                     elif line == ':tmi.twitch.tv NOTICE * :Login authentication failed':
                         log.error('CRITICAL: TWITCH REJECTED OUR LOGIN. THIS IS ON YOU TO FIX. MOST LIKELY YOUR TOKEN IS INVALID.')
@@ -571,10 +586,12 @@ class Session(object):
                             log.exception(exc)
                             log.debug(notice)
                     else:  # NOTICE NOT HANDLED, LOG AND NOTIFY
-                        log.debug('THE FOLLOWING NOTICE IS NOT BEING HANDLED PROPERLY.')
-                        log.debug(notice)
+                        # print(type(notice).__name__.lower())
+                        if type(notice).__name__.lower() not in ['001', '002', '003', '004', '372', '376', '366']:
+                            log.debug('THE FOLLOWING NOTICE IS NOT BEING HANDLED PROPERLY.')
+                            log.debug(notice)
+                            log.debug("WE'VE TRIED TO MAKE IT WORK FOR YOU THIS TIME.\nPLEASE CONTACT THE DEVELOPER.")
                         await self.call_listeners(type(notice).__name__.lower(), ctx=notice)
-                        log.debug("WE'VE TRIED TO MAKE IT WORK FOR YOU THIS TIME.\nPLEASE CONTACT THE DEVELOPER.")
 
             log.info('WebSocket has been closed!')
             if hasattr(self, 'jointask'):
