@@ -245,9 +245,8 @@ def add_listeners(func, names=['any']) -> None:
                 name = 'message'
 
         if name not in _listeners:
-            _listeners[name] = [func]
-        else:
-            _listeners[name].append(func)
+            _listeners[name] = []
+        _listeners[name].append(func)
 
 
 rx_positive = re.compile(r'^\d+$')
@@ -768,9 +767,16 @@ class Session(object):
                     # log.info(asdict(hint_class[0]()))
                     c2 = type(kwargs['ctx']).__annotations__
                     # log.info(set(hint_class[0].__annotations__) ^ set(type(kwargs['ctx']).__annotations__))
+                    difference = set(c2) - set(c1) - set(['server'])
+                    # print(difference)
+                    # print(type(difference))
+                    # print(set([]))
+                    # if difference == set(['server']): return
+                    # print(difference == set(['']))
+                    if difference == set(): return
                     self.database['log_hint_differences'].insert(dict(
                         classname=hint_class[0].__name__,
-                        difference=set(c2) - set(c1),
+                        difference=difference,
                         c1=c1,
                         c2=c2
                     ))

@@ -48,7 +48,7 @@ class Elenabot(Session):
         channels = ast.literal_eval(self.config['twitch']['channels'])
         self.dbaddress = self.config['db']['address']  # overwrite DB Address with the one we want
         self.allowed_bots = ['elenaberry', 'elenaberry_senpai', 'streamlabs', 'streamelements', 'sery_bot', 'moobot', 'nightbot', 'soundalerts']
-        self.bot_threshold = 200
+        # self.bot_threshold = 200
         self.chatters = {}
         self.botlist = {}
 
@@ -67,11 +67,11 @@ class Elenabot(Session):
 
     async def check_and_ban_user(self, user, channel):
         if user in self.allowed_bots: return
-        if user in self.botlist:
-            await self.api.ban_user(channel, user, f'User is currently in {self.botlist[user]} chat rooms at the time of this ban')
-            # await ctx.send(f"/ban {ctx.user} User is currently in {self.botlist[ctx.user]} chat rooms at the time of this ban.")
-            print(f'{user} is a bot')
-            pass
+        if user not in self.botlist: return
+        # if int(self.botlist[user]) < self.bot_threshold: return
+        print(f'{channel} | {user} is a bot, currently in {self.botlist[user]:,} chat rooms.')
+        await self.api.ban_user(channel, user, f'BOT | User is currently in {self.botlist[user]:,} chat rooms at the time of this ban')
+        # await ctx.send(f"/ban {ctx.user} User is currently in {self.botlist[ctx.user]} chat rooms at the time of this ban.")
 
     # @event('any')
     # async def test(self, ctx):
@@ -88,12 +88,12 @@ class Elenabot(Session):
     
     @event('ping')
     async def elenabot_get_botlist(self, ctx):
+        print('Updating local active botlist')
         # https://api.twitchinsights.net/v1/bots/online
         await self.update_botlist()
         for channel in list(self.chatters.keys()):
             for user in self.chatters[channel]:
                 await self.check_and_ban_user(user, channel)
-        # print('Updating local active botlist')
 
     @event('join')
     async def elenabot_ban_online_bots(self, ctx: hints.JOIN):
