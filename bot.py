@@ -34,6 +34,7 @@ class Elenabot(Session):
         self.api.client_secret = self.config['twitch']['api_client_secret']
         self.api.client_id = self.config['twitch']['api_client_id']
         self.api.scopes.append(AuthScope.MODERATOR_MANAGE_BANNED_USERS)
+        # self.api.scopes.append(AuthScope.MODERATOR_READ_FOLLOWERS)
 
         # if __debug__:
         #     # channels = ['zaquelle']
@@ -47,7 +48,7 @@ class Elenabot(Session):
 
         channels = ast.literal_eval(self.config['twitch']['channels'])
         self.dbaddress = self.config['db']['address']  # overwrite DB Address with the one we want
-        self.allowed_bots = ['elenaberry', 'elenaberry_senpai', 'streamlabs', 'streamelements', 'sery_bot', 'moobot', 'nightbot', 'soundalerts']
+        self.allowed_bots = ['elenaberry', 'elenaberryva', 'twilidev', 'streamlabs', 'streamelements', 'sery_bot', 'moobot', 'nightbot', 'soundalerts']
         # self.bot_threshold = 200
         self.chatters = {}
         self.botlist = {}

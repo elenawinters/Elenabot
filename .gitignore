@@ -140,3 +140,4 @@ dmypy.json
 *.bat
 *.txt
 dev_notes.md
+data.sqlite
