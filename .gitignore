@@ -141,3 +141,6 @@ dmypy.json
 *.txt
 dev_notes.md
 data.sqlite
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal

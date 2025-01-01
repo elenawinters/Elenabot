@@ -3,7 +3,7 @@
 
     Inherit from Session class to use.
 
-    Copyright 2021-2024 ElenaWinters
+    Copyright 2021-2025 ElenaWinters
     References:
         Twitch IRC Guide
         Rinbot by RingoMär
@@ -255,6 +255,7 @@ rx_positive = re.compile(r'^\d+$')
 @dataclass
 class SessionFlags:
     log_hint_differences: bool = False
+    extra_debug_logging: bool = False
     send_in_debug: bool = False
 
     def __setattr__(self, prop, val):
@@ -690,12 +691,16 @@ class Session(object):
         event_data = asdict(ctx)
         if 'send' in event_data: 
             del event_data['send']
-        self.database['incoming'].insert(dict(
-            timestamp=datetime.utcnow(),
-            channel=channel,
-            event=str(ctx),
-            data=msgpack.packb({type(ctx).__name__: event_data})
-        ))
+        try: 
+            self.database['incoming'].insert(dict(
+                timestamp=datetime.utcnow(),
+                channel=channel,
+                event=str(ctx),
+                data=msgpack.packb({type(ctx).__name__: event_data})
+            ))
+        except Exception as esc:
+            log.debug(f'Failed to save to database: {str(ctx)}')
+            log.exception(esc)
 
     @event('message', 'sub')
     async def log_messageable(self, ctx: hints.Messageable) -> None:

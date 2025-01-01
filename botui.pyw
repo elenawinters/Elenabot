@@ -1,3 +1,4 @@
+from dataclasses import field
 from elenabotlib import *
 from tkinter import ttk
 import tkinter as tk
@@ -5,6 +6,7 @@ import sys, os, ast
 import configparser
 import threading
 import random
+import hints
 
 # Gonna be honest, I'm happy with this wrapper
 # Kerobel suggested Qt as a UI library. I'll probably make a seperate version with Qt later (maybe)
@@ -19,7 +21,7 @@ class Listener:
 class MemoryState:
     login: str = None
     listeners: list[Listener] = None
-    user: dict[str, USERSTATE] = field(default_factory=dict)
+    user: dict[str, hints.USERSTATE] = field(default_factory=dict)
     schedule: str = None
 
 
