@@ -1,0 +1,4 @@
+mysqlclient
+aiohttp
+dataset
+msgpack

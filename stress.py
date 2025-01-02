@@ -29,8 +29,8 @@ class Elenabot(Session):
         channels = ast.literal_eval(config['twitch']['channels'])
         self.dbaddress = config['db']['address']  # overwrite DB Address with the one we want
 
-        if __debug__:
-            self.flags.log_hint_differences = True
+        # if __debug__:
+            # self.flags.log_hint_differences = True
             # self.flags.send_in_debug = True
 
         self.start(config['twitch']['oauth'], config['twitch']['nickname'], channels)

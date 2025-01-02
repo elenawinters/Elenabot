@@ -138,7 +138,7 @@ dmypy.json
 *.pyw
 *.ini
 *.bat
-*.txt
+test.txt
 dev_notes.md
 data.sqlite
 *.sqlite

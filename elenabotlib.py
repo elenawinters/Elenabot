@@ -30,18 +30,20 @@ import math
 import sys
 import re
 
+"""
+
+    For anyone wondering why this lib uses websockets instead of sockets, it's pretty simple.
+
+    The Twitch chat socket implementation has data loss. Whether or not that's a Python issue or a twitch issue is beyond me.
+    The websocket implementation has no data loss. It's simply more reliable.
+
+    If you want an old, outdated socket implementation, check out the `socket` branch.
+
+"""
+
 
 log = logging.getLogger(__name__)
 SOH = chr(1)  # ASCII SOH (Start of Header) Control Character, used for ACTION events
-
-# con = sqlite3.connect('log.sqlite')
-# cur = con.cursor()
-
-# con.execute('''CREATE TABLE IF NOT EXISTS msg_sent (channel text, message text)''')
-# con.execute('''CREATE TABLE IF NOT EXISTS msg_denied (channel text, message text)''')
-# con.execute('''CREATE TABLE IF NOT EXISTS msg_banned (channel text)''')
-# con.execute('''CREATE TABLE IF NOT EXISTS outgoing (channel text, message text)''')
-
 
 def event(name: str = 'any', *extras) -> Callable:  # listener/decorator for any event
     events = list(extras)
@@ -285,6 +287,8 @@ class Session(object):
     def twitch_irc_formatter(self, original: str = '@badge-info=gay/4;badges=lesbian/3,premium/1;user-type=awesome :tmi.twitch.tv GAYMSG #zaquelle :This is kinda gay'):  # tested with every @ based message. parses correctly.
         array = original[1:].split(' ')  # Indexes | 0 = Server, 1 = Notice, 2 = Channel, 3+ = Message (Broken up, use Regex)
         # ChatGPT says that re.split should be used over a string split for the above. TODO: Test with re.split
+        # 2025 - Fricc ChatGPT, I'm not changing this. It works fine.
+        # log.debug(original)
         offset = 0
         info = {}
         if original.startswith('@'):
@@ -325,7 +329,7 @@ class Session(object):
                 info['message'] = message.group(1)
 
         if user := re.search(r"(?P<name>[\w]+)!(?P=name)@(?P=name)", array[0 + offset]):
-            info['user'] = user.group(1)
+            info['user'] = str(user.group(1))
 
         if __debug__:  # include server if in debug mode. this isn't useful for most cases and i dont wanna properly parse it
             info['server'] = array[0 + offset]
@@ -398,7 +402,7 @@ class Session(object):
     @dispatch('globaluserstate')  # I usually format display_name to user but I don't want to do that with GUS
     async def handle_globaluserstate(self, ctx: hints.GLOBALUSERSTATE):  # ALWAYS SET THIS
         dprs = ctx.__dict__
-        dprs['user'] = ctx.display_name
+        dprs['user'] = str(ctx.display_name)
         del dprs['display_name']
         prs = make_dataclass(type(ctx).__name__, [tuple([k, v]) for k, v in dprs.items()])(**dprs)
         await self.call_listeners(type(ctx).__name__.lower(), ctx=prs)
@@ -409,7 +413,7 @@ class Session(object):
         if not self.any_listeners('message'): return
         dprs = ctx.__dict__
         if hasattr(ctx, 'display_name'):
-            dprs['user'] = ctx.display_name
+            dprs['user'] = str(ctx.display_name)
             del dprs['display_name']
         dprs['send'] = self.proxy_send_obj(ctx.channel)
         dprs['action'] = True if 'ACTION' in ctx.message and SOH in ctx.message else False
@@ -425,7 +429,7 @@ class Session(object):
         if not self.any_listeners('userstate'): return
         dprs = ctx.__dict__
         if hasattr(ctx, 'display_name'):
-            dprs['user'] = ctx.display_name
+            dprs['user'] = str(ctx.display_name)
             del dprs['display_name']
         dprs['send'] = self.proxy_send_obj(ctx.channel)
         prs = make_dataclass(type(ctx).__name__, [tuple([k, v]) for k, v in dprs.items()])(**dprs)
@@ -453,10 +457,10 @@ class Session(object):
         dprs['send'] = self.proxy_send_obj(ctx.channel)
 
         if hasattr(ctx, 'display_name'):
-            dprs['user'] = ctx.display_name
+            dprs['user'] = str(ctx.display_name)
             del dprs['display_name']
         else:
-            dprs['user'] = ctx.login
+            dprs['user'] = str(ctx.login)
         del dprs['login']
 
         prs = None
@@ -464,11 +468,19 @@ class Session(object):
         if ctx.msg_id in ('sub', 'resub', 'extendsub', 'primepaidupgrade', 'communitypayforward', 'standardpayforward',
                           'subgift', 'anonsubgift', 'submysterygift', 'giftpaidupgrade', 'anongiftpaidupgrade'):
             dprs['message'] = hints.Message(dprs['user'], ctx.channel, ctx.message if hasattr(ctx, 'message') else None)
+
+            # I can't believe I have to write code for this. MsgPack doesn't like huge huge numbers.
+            # Twitch users can have their names as just numbers, which if long enough, break the logger.
+            if hasattr(ctx, 'msg_param_recipient_display_name'):
+                dprs['msg_param_recipient_display_name'] = str(ctx.msg_param_recipient_display_name)
+            if hasattr(ctx, 'msg_param_recipient_user_name'):
+                dprs['msg_param_recipient_user_name'] = str(ctx.msg_param_recipient_user_name)
+
             prs = make_dataclass('SUBSCRIPTION', [tuple([k, v]) for k, v in dprs.items()])(**dprs)
             await self.call_listeners(f'sub:{prs.msg_id}', ctx=prs)  # this covers anysub, just use "sub" as the event
 
         elif ctx.msg_id == 'raid':
-            dprs['raider'] = dprs['msg_param_displayName'] if 'msg_param_displayName' in dprs else dprs['msg_param_login']
+            dprs['raider'] = str(dprs['msg_param_displayName']) if 'msg_param_displayName' in dprs else str(dprs['msg_param_login'])
             dprs['viewers'] = dprs['msg_param_viewerCount']
 
             prs = make_dataclass(ctx.msg_id.upper(), [tuple([k, v]) for k, v in dprs.items()])(**dprs)
@@ -501,7 +513,7 @@ class Session(object):
         prs = make_dataclass(type(ctx).__name__, [tuple([k, v]) for k, v in dprs.items()])(**dprs)
         await self.call_listeners(type(ctx).__name__.lower(), ctx=prs)
 
-    @dispatch('clearchat')  # CLEARCHAT(ban_duration=60, room_id=22484632, target_user_id=42935983, tmi_sent_ts=1652203009894, message='narehawk', server=':tmi.twitch.tv', channel='#forsen')
+    @dispatch('clearchat')
     async def handle_clearchat(self, ctx):
         if not self.any_listeners('clearchat'): return
         dprs = ctx.__dict__
@@ -513,7 +525,7 @@ class Session(object):
             log.debug(prs)
 
     # THIS IS A DEPRECIATED EVENT. THIS IS EFFECTIVELY A DEAD CODE PATH.
-    @dispatch('hosttarget')  # HOSTTARGET(message='froggirlgaming 6', server='tmi.twitch.tv', channel='#xcup_of_joe')
+    @dispatch('hosttarget')
     async def handle_hosttarget(self, ctx):
         if not self.any_listeners('host', 'unhost', 'hosttarget'): return
         dprs = ctx.__dict__
@@ -535,7 +547,7 @@ class Session(object):
         if not self.any_listeners('whisper'): return
         dprs = ctx.__dict__
         if hasattr(ctx, 'display_name'):
-            dprs['user'] = ctx.display_name
+            dprs['user'] = str(ctx.display_name)
             del dprs['display_name']
         dprs['message'] = hints.Message(dprs['user'], ctx.channel, ctx.message if hasattr(ctx, 'message') else None)
         prs = make_dataclass(type(ctx).__name__, [tuple([k, v]) for k, v in dprs.items()])(**dprs)
@@ -702,8 +714,11 @@ class Session(object):
             log.debug(f'Failed to save to database: {str(ctx)}')
             log.exception(esc)
 
-    @event('message', 'sub')
+    @event('message', 'sub', 'raid')
     async def log_messageable(self, ctx: hints.Messageable) -> None:
+        if type(ctx).__name__ == 'RAID':
+            log.info(f'RAID {ctx.channel} >>> {ctx.raider}: {ctx.viewers}')
+            return
         if type(ctx).__name__ == 'PRIVMSG' and ctx.action:
             log.info(f'ACTION {ctx.message.channel} >>> {ctx.message.author}: {ctx.message.content}')
             return
@@ -800,7 +815,9 @@ class Session(object):
         return True
 
     async def send(self, message: str, channel: str) -> None:
-        if __debug__ and not self.flags.send_in_debug: return  # since i do a lot of debugging, i dont want to accidentally send something in a chat
+        if __debug__ and not self.flags.send_in_debug:
+            log.debug(f'ATTEMPTED SENDING MESSAGE IN DEBUG MODE! MESSAGE HAS BEEN SUPPRESSED! ({channel}: {message})' )
+            return  # since i do a lot of debugging, i dont want to accidentally send something in a chat
         await self.sock.send_str(f'PRIVMSG {channel} :{message}')  # placement of the : is important :zaqPbt:
         self.__outgoing[channel].append(message)
         # cur.execute('insert into outgoing values (?, ?)', (channel, message,))

@@ -260,6 +260,11 @@ class Elenabot:
                 self.update_messages_widget(to_insert, ctx.message.channel)
                 # log.debug(f'{ctx.message.channel}: Line Count: {line_count}; Scrollbar Line: {scroll_line}; Difference: {diff}')
 
+            @event('sub')
+            async def on_sub(cls, ctx):
+                to_insert = f'{ctx.message.author} SUBSCRIBED: {ctx.message.content}\n'
+                self.update_messages_widget(to_insert, ctx.message.channel)
+
             @event('userstate')
             async def set_userstate_channel(cls, ctx):
                 self.check_schedule(ctx)

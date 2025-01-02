@@ -1,6 +1,6 @@
 # Elenabot
 
-This is a Twitch bot made by myself, Elena, for personal use. This may be merged in with the Stitch project down the line.
+This is a Twitch bot made by myself, Elena, for personal use.
 
 ## The -OO flag
 
@@ -23,4 +23,4 @@ This project uses debug flags and docstrings. It is recommended you use -OO so t
 
 ## Requirements
 
-This project uses features from Python 3.10.
+This project is currently being developed in Python 3.13.
