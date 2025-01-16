@@ -269,8 +269,8 @@ class SessionFlags:
 class Session(object):
     def __init__(self) -> None:
         self.auto_reconnect = True
-        self.host = 'ws://irc-ws.chat.twitch.tv'
-        self.port = 80
+        self.host = 'wss://irc-ws.chat.twitch.tv'
+        self.port = 443
         self.__cooldowns = {}
         self.__channels = []
         self.__joinqueue = Queue()
