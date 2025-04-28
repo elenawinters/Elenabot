@@ -283,99 +283,58 @@ class Session(object):
         self.flags = SessionFlags()
         self.flag_storage = {}
 
-    # This is a direct port of the IRC parser from my JavaScript implementation.
-    # it is a better implementation than the legacy verson, and I hope it is more expandable.
-    def parseIRC(self, data: str = '@badge-info=gay/4;badges=lesbian/3,premium/1;user-type=awesome :tmi.twitch.tv GAYMSG #zaquelle :This is kinda gay'):
-        RAW = data 
-        RESULT = {}
-        match = None
+    # This is a complex function, and it has a high "Cognitive Complexity", beyond the limit of 15.
+    def twitch_irc_formatter(self, original: str = '@badge-info=gay/4;badges=lesbian/3,premium/1;user-type=awesome :tmi.twitch.tv GAYMSG #zaquelle :This is kinda gay'):  # tested with every @ based message. parses correctly.
+        array = original[1:].split(' ')  # Indexes | 0 = Server, 1 = Notice, 2 = Channel, 3+ = Message (Broken up, use Regex)
+        # ChatGPT says that re.split should be used over a string split for the above. TODO: Test with re.split
+        # 2025 - Fricc ChatGPT, I'm not changing this. It works fine.
+        # log.debug(original)
+        offset = 0
+        info = {}
+        if original.startswith('@'):
+            offset = 1
+            for k, v, _ in re.findall(r'([-\w]+)=(.*?)(;| :)', re.split(r'tmi\.twitch\.tv', original)[0]):
+                # log.debug(k)
+                k = k.replace('-', '_')
+                if k in ('badge_info', 'badges'):  # converts for specific fields
+                    badges = []
+                    for entry in v.split(','):
+                        if badge := re.search(r'(.+?)/(.+)', entry):
+                            version = badge.group(2).replace('\\s', ' ')
+                            if rx_positive.match(version):
+                                version = int(version)
+                            badges.append(hints.Badge(name=badge.group(1), version=version))
+                    info[k] = badges
+                elif k in ('emote_sets', 'emotes'):
+                    info[k] = [e for e in v.split(',') if e]  # E
+                elif k in ('system_msg', 'reply_parent_msg_body'):
+                    info[k] = v.replace('\\s', ' ')
+                elif k in ('emote_only', 'subscriber', 'first_msg', 'subs_only', 'rituals',
+                           'turbo', 'mod', 'r9k'):
+                    info[k] = bool(int(v))
+                else:
+                    if v == '':
+                        v = None
+                    elif rx_positive.match(v) or re.match(r'^-\d+$', v):  # there is a positive and negative version cuz regex
+                        v = int(v)  # ^\d+$|^-\d+$
+                    elif v == 'false':
+                        v = False
+                    elif v == 'true':
+                        v = True
+                    info[k] = v
 
-        if match := re.match(r'^@([^ ]+) ', data):
-            tags = match[1].split(';')
-            RESULT['tags'] = {}
-            for tag in tags:
-                key, value = tag.split('=')
-                if key == 'badges' or key == 'badge-info' or key == 'source-badges':
-                    RESULT['tags'][key] = {}
-                    if value == '': continue
-                    badges = value.split(',')
-                    for badge in badges:
-                        badgeKey, badgeValue = badge.split('/')
-                        RESULT['tags'][key][badgeKey] = badgeValue
-                    continue
-                elif key == 'emotes':
-                    RESULT['tags'][key] = []
-                    if value == '': continue
-                    emotes = value.split('/')
-                    for emote in emotes:
-                        emoteKey, emoteValue = emote.split(':')
-                        RESULT['tags'][key].append({ 'id': emoteKey, 'positions': emoteValue.split(',') })
-                    continue
-                RESULT['tags'][key] = value or None
-            # log.debug(data)
-            data = data[len(match[0]):]
-            # log.debug(data)
-        
-        if match := re.match(r'^:([^ ]+) ([^ ]+) ?([^ ]+)?(.*)$', data):
-            # print('here2')
-            # print(match.groups())
-            # print(match)
-            SERVER, COMMAND, TARGET, _MESSAGE = match.groups()
-            MESSAGE = _MESSAGE[1:]  # fricc consts
-            # print(SERVER)
-            # print(COMMAND)
-            # print(TARGET)
-            # print(MESSAGE)
+        if len(array) >= 3 + offset:  # this is so sketch but it works. basically, check if a channel is provided
+            info['channel'] = array[2 + offset]  # force channel
+            if message := re.search(f"{array[1 + offset]} {info['channel']}" + r'..(.*)', original):
+                info['message'] = message.group(1)
 
-            RESULT['command'] = COMMAND
-            match COMMAND:
-                case 'CAP':
-                    cap: list = MESSAGE[len('ACK') + 2:].split(' ')
-                    RESULT['ACK'] = cap
-                case '353':
-                    users: list = MESSAGE.split(' ')
-                    users.pop()
-                    RESULT['channel'] = users.pop()
-                    users[0] = users[0][1:]
-                    RESULT['users'] = users
-                case 'JOIN' | 'PART':
-                    RESULT['channel'] = TARGET
-                    RESULT['user'] = SERVER.split('!')[0]
-                case 'PRIVMSG':
-                    RESULT['channel'] = TARGET
-                    RESULT['sender'] = SERVER.split('!')[0]
-                    RESULT['message'] = MESSAGE[1:] if MESSAGE.startswith(':') else MESSAGE
-                    RESULT['action'] = False
-                    if SOH in RESULT['message']:
-                        RESULT['message'] = RESULT['message'].replace(SOH + 'ACTION', '').replace(SOH, '')
-                        RESULT['action'] = True
-                case 'USERNOTICE':
-                    RESULT['channel'] = TARGET
-                    RESULT['user'] = MESSAGE[1:] if MESSAGE.startswith(':') else MESSAGE
-                    RESULT['type'] = RESULT['tags']['msg-id']
-                    if SOH in RESULT['message']:
-                        log.warning("ACTION DETECTED IN USERNOTICE?! NANI?!")
-                case 'CLEARMSG':
-                    RESULT['channel'] = TARGET
-                    RESULT['user'] = RESULT['tags']['login']
-                    RESULT['message'] = MESSAGE[1:] if MESSAGE.startswith(':') else MESSAGE
-                case 'CLEARCHAT':
-                    RESULT['channel'] = TARGET
-                    RESULT['user'] = MESSAGE[1:] if MESSAGE.startswith(':') else MESSAGE
-                case _:
-                    if re.match(r'^\d+$', COMMAND):
-                        RESULT['message'] = MESSAGE[1:] if MESSAGE.startswith(':') else MESSAGE
-                    else:
-                        RESULT['channel'] = TARGET
-                        if MESSAGE != '': RESULT['message'] = MESSAGE[1:] if MESSAGE.startswith(':') else MESSAGE
-                        if COMMAND not in {'ROOMSTATE', 'GLOBALUSERSTATE'}:
-                            log.warning(f'{COMMAND} is not handled in a special way.')
-                            RESULT['server'] = SERVER
-                    pass
+        if user := re.search(r"(?P<name>[\w]+)!(?P=name)@(?P=name)", array[0 + offset]):
+            info['user'] = str(user.group(1))
 
-
-        RESULT['raw'] = RAW
-        return RESULT
+        if __debug__:  # include server if in debug mode. this isn't useful for most cases and i dont wanna properly parse it
+            info['server'] = array[0 + offset]
+        prs = make_dataclass(array[1 + offset], [tuple([k, v]) for k, v in info.items()])
+        return prs(**info)
 
     def proxy_send_obj(self, channel: str):
         if channel not in self.__proxies:
@@ -390,13 +349,211 @@ class Session(object):
     #     print(ctx)
     #     pass
 
-    @event('376')
-    async def handle_376(self, ctx):
+    @dispatch('ping')
+    async def handle_ping_pong(self, ctx):
+        await self.sock.send_str('PONG :tmi.twitch.tv')
+        # if __debug__:
+        #     log.info('Server sent PING. We sent PONG.')
+        dprs = {'server': ':tmi.twitch.tv'}
+        prs = make_dataclass('ping', [tuple([k, v]) for k, v in dprs.items()])(**dprs)
+        await self.call_listeners('ping', ctx=prs)
+
+    @dispatch('join', 'part')
+    async def handle_join_part(self, ctx):
+        if not self.any_listeners('join', 'part'): return
+        dprs = ctx.__dict__
+        dprs['send'] = self.proxy_send_obj(ctx.channel)
+        prs = make_dataclass(type(ctx).__name__, [tuple([k, v]) for k, v in dprs.items()])(**dprs)
+        if ctx.user == self.nick:
+            await self._lcall(f'{type(ctx).__name__.lower()}:self', ctx=prs)
+        await self.call_listeners(f'{type(ctx).__name__.lower()}:{ctx.user}', ctx=prs)
+
+    @dispatch(353)
+    async def handle_353(self, ctx):
+        if not self.any_listeners('join'): return
+        users = re.findall(r'\w+', ctx.message)
+        channel = users.pop(0)
+
+        for user in users:
+            if user == self.nick: continue
+            prs = make_dataclass('JOIN', [tuple(['user', str]), tuple(['channel', str])])
+            await self.call_listeners(f'join:{user}', ctx=prs(user=user, channel=f'#{channel}'))
+
+    @dispatch(375)
+    async def handle_375(self, ctx):
         log.debug(f"Connected! Environment is {'DEBUG' if __debug__ else 'PRODUCTION'}.")
         loop = asyncio.get_running_loop()
         self.jointask = loop.create_task(self._join())
 
-    async def __wsloop(self, channels):
+    @dispatch(421)  # UNKNOWN IRC COMMAND
+    async def unknown_command_irc(self, ctx):
+        log.debug(f"An IRC command was sent to the server, but they didn't recognize it. Here is what the server told us:\n{ctx}")
+
+    @dispatch('cap')
+    async def handle_cap(self, ctx):
+        dprs = ctx.__dict__  # dprs and ctx are linked. changing one changes the other.
+        dprs['capabilities'] = re.findall(r'twitch\.tv\/(\w+)', ctx.message)
+        dprs['response'] = re.search(r'(\w+) :twitch\.tv\/\w+', ctx.message).group(1)
+        del dprs['channel']
+        del dprs['message']
+        prs = make_dataclass(type(ctx).__name__, [tuple([k, v]) for k, v in dprs.items()])
+        await self.call_listeners(type(ctx).__name__.lower(), ctx=prs(**dprs))
+
+    @dispatch('globaluserstate')  # I usually format display_name to user but I don't want to do that with GUS
+    async def handle_globaluserstate(self, ctx: hints.GLOBALUSERSTATE):  # ALWAYS SET THIS
+        dprs = ctx.__dict__
+        dprs['user'] = str(ctx.display_name)
+        del dprs['display_name']
+        prs = make_dataclass(type(ctx).__name__, [tuple([k, v]) for k, v in dprs.items()])(**dprs)
+        await self.call_listeners(type(ctx).__name__.lower(), ctx=prs)
+        self.state = ctx
+
+    @dispatch('privmsg')
+    async def handle_privmsg(self, ctx: Union[hints.PRIVMSG, hints.USERSTATE]):
+        if not self.any_listeners('message'): return
+        dprs = ctx.__dict__
+        if hasattr(ctx, 'display_name'):
+            dprs['user'] = str(ctx.display_name)
+            del dprs['display_name']
+        dprs['send'] = self.proxy_send_obj(ctx.channel)
+        dprs['action'] = True if 'ACTION' in ctx.message and SOH in ctx.message else False
+        dprs['message'] = hints.Message(dprs['user'], ctx.channel, ctx.message[len(SOH + 'ACTION '):-len(SOH)] if dprs['action'] else ctx.message)
+        prs = make_dataclass(type(ctx).__name__, [tuple([k, v]) for k, v in dprs.items()])(**dprs)
+        if prs.action:
+            await self.call_listeners('message:action', ctx=prs)
+            return
+        await self.call_listeners('message', ctx=prs)
+
+    @dispatch('userstate')
+    async def handle_userstate(self, ctx: Union[hints.PRIVMSG, hints.USERSTATE]):
+        if not self.any_listeners('userstate'): return
+        dprs = ctx.__dict__
+        if hasattr(ctx, 'display_name'):
+            dprs['user'] = str(ctx.display_name)
+            del dprs['display_name']
+        dprs['send'] = self.proxy_send_obj(ctx.channel)
+        prs = make_dataclass(type(ctx).__name__, [tuple([k, v]) for k, v in dprs.items()])(**dprs)
+        await self.call_listeners(type(ctx).__name__.lower(), ctx=prs)
+
+    @dispatch('roomstate', 'clearmsg')
+    async def handle_generic(self, ctx):
+        if not self.any_listeners('roomstate', 'clearmsg'): return
+        dprs = ctx.__dict__
+        dprs['send'] = self.proxy_send_obj(ctx.channel)
+        prs = make_dataclass(type(ctx).__name__, [tuple([k, v]) for k, v in dprs.items()])(**dprs)
+        await self.call_listeners(type(ctx).__name__.lower(), ctx=prs)
+
+    @dispatch('notice')
+    async def handle_notice(self, ctx):
+        if not self.any_listeners('notice'): return
+        dprs = ctx.__dict__
+        dprs['send'] = self.proxy_send_obj(ctx.channel)
+        prs = make_dataclass(type(ctx).__name__, [tuple([k, v]) for k, v in dprs.items()])(**dprs)
+        await self.call_listeners(f'notice:{ctx.msg_id}', ctx=prs)
+
+    @dispatch('usernotice')  # i dont know if i'll add individual listener checks yet. unsure on speed of any_listeners
+    async def handle_usernotice(self, ctx):
+        dprs = ctx.__dict__
+        dprs['send'] = self.proxy_send_obj(ctx.channel)
+
+        if hasattr(ctx, 'display_name'):
+            dprs['user'] = str(ctx.display_name)
+            del dprs['display_name']
+        else:
+            dprs['user'] = str(ctx.login)
+        del dprs['login']
+
+        prs = None
+
+        if ctx.msg_id in ('sub', 'resub', 'extendsub', 'primepaidupgrade', 'communitypayforward', 'standardpayforward',
+                          'subgift', 'anonsubgift', 'submysterygift', 'giftpaidupgrade', 'anongiftpaidupgrade'):
+            dprs['message'] = hints.Message(dprs['user'], ctx.channel, ctx.message if hasattr(ctx, 'message') else None)
+
+            # I can't believe I have to write code for this. MsgPack doesn't like huge huge numbers.
+            # Twitch users can have their names as just numbers, which if long enough, break the logger.
+            if hasattr(ctx, 'msg_param_recipient_display_name'):
+                dprs['msg_param_recipient_display_name'] = str(ctx.msg_param_recipient_display_name)
+            if hasattr(ctx, 'msg_param_recipient_user_name'):
+                dprs['msg_param_recipient_user_name'] = str(ctx.msg_param_recipient_user_name)
+
+            prs = make_dataclass('SUBSCRIPTION', [tuple([k, v]) for k, v in dprs.items()])(**dprs)
+            await self.call_listeners(f'sub:{prs.msg_id}', ctx=prs)  # this covers anysub, just use "sub" as the event
+
+        elif ctx.msg_id == 'raid':
+            dprs['raider'] = str(dprs['msg_param_displayName']) if 'msg_param_displayName' in dprs else str(dprs['msg_param_login'])
+            dprs['viewers'] = dprs['msg_param_viewerCount']
+
+            prs = make_dataclass(ctx.msg_id.upper(), [tuple([k, v]) for k, v in dprs.items()])(**dprs)
+            await self.call_listeners(f'{ctx.msg_id}:{prs.channel}', ctx=prs)
+
+        elif ctx.msg_id == 'ritual':
+            dprs['name'] = dprs['msg_param_ritual_name']
+            prs = make_dataclass(ctx.msg_id.upper(), [tuple([k, v]) for k, v in dprs.items()])(**dprs)
+            await self.call_listeners(f'{ctx.msg_id}:{prs.name}', ctx=prs)  # this will be new new catergory format "listener:sub_type"
+            if prs.name != 'new_chatter':
+                log.debug(prs)  # just incase new rituals are added
+
+        # This is for generic items that don't need to be processed.
+        elif ctx.msg_id in ('unraid',  # called when a raid is cancelled. doesn't give a raid target
+                            'bitsbadgetier',  # i documented this above but never looked into it. only a few examples, no idea what it does
+                            'announcement',  # This is super new.
+                            'midnightsquid'):  # Midnightsquid is a 2022 cheering experiment with actual currency.
+            prs = make_dataclass(ctx.msg_id.upper(), [tuple([k, v]) for k, v in dprs.items()])(**dprs)
+            await self.call_listeners(ctx.msg_id, ctx=prs)
+
+        else:
+            log.debug('THE FOLLOWING MSG_ID IS NOT BEING HANDLED PROPERLY.')
+            log.debug(ctx)
+            if hasattr(ctx, 'msg_id'):
+                prs = make_dataclass(ctx.msg_id.upper(), [tuple([k, v]) for k, v in dprs.items()])(**dprs)
+                await self.call_listeners(prs.msg_id, ctx=prs)
+                log.debug(prs)
+            log.debug("WE'VE TRIED TO MAKE IT WORK FOR YOU THIS TIME.\nPLEASE CONTACT THE DEVELOPER.")
+
+        prs = make_dataclass(type(ctx).__name__, [tuple([k, v]) for k, v in dprs.items()])(**dprs)
+        await self.call_listeners(type(ctx).__name__.lower(), ctx=prs)
+
+    @dispatch('clearchat')
+    async def handle_clearchat(self, ctx):
+        if not self.any_listeners('clearchat'): return
+        dprs = ctx.__dict__
+        dprs['target'] = dprs.get('message')
+        if hasattr(ctx, 'message'): del dprs['message']
+        prs = make_dataclass(type(ctx).__name__, [tuple([k, v]) for k, v in dprs.items()])(**dprs)
+        await self.call_listeners(type(ctx).__name__.lower(), ctx=prs)
+        if prs.target is None:
+            log.debug(prs)
+
+    # THIS IS A DEPRECIATED EVENT. THIS IS EFFECTIVELY A DEAD CODE PATH.
+    @dispatch('hosttarget')
+    async def handle_hosttarget(self, ctx):
+        if not self.any_listeners('host', 'unhost', 'hosttarget'): return
+        dprs = ctx.__dict__
+        target, dprs['viewers'] = ctx.message.split(' ')
+        del dprs['message']
+        if dprs['viewers'] == '-':
+            dprs['viewers'] = 0
+        focus = 'unhost'
+        if target != '-':
+            dprs['target'] = target
+            focus = 'host'
+        dprs['viewers'] = int(dprs['viewers'])
+        prs = make_dataclass(focus.upper(), [tuple([k, v]) for k, v in dprs.items()])(**dprs)
+        await self.call_listeners('hosttarget', ctx=prs)  # this is sent regardless of focus
+        await self.call_listeners(focus, ctx=prs)
+
+    @dispatch('whisper')
+    async def handle_whisper(self, ctx):  # you cannot send a whisper from irc so i'm not gonna include a send object
+        if not self.any_listeners('whisper'): return
+        dprs = ctx.__dict__
+        if hasattr(ctx, 'display_name'):
+            dprs['user'] = str(ctx.display_name)
+            del dprs['display_name']
+        dprs['message'] = hints.Message(dprs['user'], ctx.channel, ctx.message if hasattr(ctx, 'message') else None)
+        prs = make_dataclass(type(ctx).__name__, [tuple([k, v]) for k, v in dprs.items()])(**dprs)
+        await self.call_listeners(type(ctx).__name__.lower(), ctx=prs)
+
+    async def __wsloop(self, channels):  # i've seperated this out so it's easier to read. also using mangling cuz this is a messy function that i dont want people to touch
         async with aiohttp.ClientSession().ws_connect(f'{self.host}:{self.port}', heartbeat=10) as self.sock:
             log.debug(f'Attempting to connect to {self.host}:{self.port}')
             await self.sock.send_str("CAP REQ :twitch.tv/membership twitch.tv/tags twitch.tv/commands")
@@ -408,17 +565,46 @@ class Session(object):
                     log.debug(f'Unknown WSMessage Type: {msg.type}')
                     continue
                 for line in msg.data.split("\r\n")[:-1]:
-                    if line == '': continue
+                    
                     if line == 'PING :tmi.twitch.tv':
-                        await self.sock.send_str('PONG :tmi.twitch.tv')
+                        try:
+                            await _handlers['ping'](self, ctx=line)
+                        except Exception as exc:
+                            log.exception(exc)
+                        # await self.sock.send_str('PONG :tmi.twitch.tv')
+                        # if __debug__:
+                        #     log.info('Server sent PING. We sent PONG.')
                         continue
-                    ctx = self.parseIRC(line)
-                    # log.debug(comp)
-                    # dprs = comp.__dict__  # dprs and ctx are linked. changing one changes the other.
-                    prs = make_dataclass(ctx['command'], [tuple([k, v]) for k, v in ctx.items()])(**ctx)
-                    await self.call_listeners(type(prs).__name__.lower(), ctx=prs)
-                    log.debug(prs)
-
+                    elif line == ':tmi.twitch.tv NOTICE * :Login authentication failed':
+                        log.error('CRITICAL: TWITCH REJECTED OUR LOGIN. THIS IS ON YOU TO FIX. MOST LIKELY YOUR TOKEN IS INVALID.')
+                        self.auto_reconnect = False
+                        await self.sock.close()
+                        continue
+                    elif line == ':tmi.twitch.tv RECONNECT':  # the parser will parse this, but i want it to be very explicitly handled
+                        await self.sock.close()
+                        continue
+                    try:
+                        notice = self.twitch_irc_formatter(line)
+                    except Exception as exc:
+                        log.exception(exc)
+                        log.debug(line)
+                        continue
+                    name = type(notice).__name__.lower()
+                    if rx_positive.match(name):
+                        name = int(name)
+                    if name in _handlers:
+                        try:
+                            await _handlers[name](self, ctx=notice)
+                        except Exception as exc:
+                            log.exception(exc)
+                            log.debug(notice)
+                    else:  # NOTICE NOT HANDLED, LOG AND NOTIFY
+                        # print(type(notice).__name__.lower())
+                        if type(notice).__name__.lower() not in ['001', '002', '003', '004', '372', '376', '366']:
+                            log.debug('THE FOLLOWING NOTICE IS NOT BEING HANDLED PROPERLY.')
+                            log.debug(notice)
+                            log.debug("WE'VE TRIED TO MAKE IT WORK FOR YOU THIS TIME.\nPLEASE CONTACT THE DEVELOPER.")
+                        await self.call_listeners(type(notice).__name__.lower(), ctx=notice)
 
             log.info('WebSocket has been closed!')
             if hasattr(self, 'jointask'):
@@ -472,7 +658,6 @@ class Session(object):
         log.info('Auto Reconnect has been disabled, and the program has stopped.')
 
     async def join(self, channels: Union[list, str]):
-        # print('here')
         channels = [channels] if isinstance(channels, str) else channels
 
         channels = [chan for chan in channels if chan not in self.__channels]
@@ -631,7 +816,6 @@ class Session(object):
         return True
 
     async def send(self, message: str, channel: str) -> None:
-        return
         if __debug__ and not self.flags.send_in_debug:
             log.debug(f'ATTEMPTED SENDING MESSAGE IN DEBUG MODE! MESSAGE HAS BEEN SUPPRESSED! ({channel}: {message})' )
             return  # since i do a lot of debugging, i dont want to accidentally send something in a chat
