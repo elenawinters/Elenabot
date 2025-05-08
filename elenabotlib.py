@@ -343,7 +343,7 @@ class Session(object):
                     RESULT['users'] = users
                 case '366':
                     RESULT['channel'] = MESSAGE.split(' ')[0]
-                    RESULT['message'] = ' '.join(MESSAGE.split(' ')[1:])[1:]
+                    RESULT['message'] = MESSAGE[len(RESULT['channel']) + 2:]
                 case 'JOIN' | 'PART':
                     RESULT['user'] = SERVER.split('!')[0]
                 case 'PRIVMSG':
