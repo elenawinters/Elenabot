@@ -327,22 +327,24 @@ class Session(object):
             # print(TARGET)
             # print(MESSAGE)
 
+            ADD_SEND = True
+            
             RESULT['command'] = COMMAND
             match COMMAND:
                 case 'CAP':
                     cap: list = MESSAGE[len('ACK') + 2:].split(' ')
                     RESULT['ACK'] = cap
+                    ADD_SEND = False
                 case '353':
                     users: list = MESSAGE.split(' ')
                     users.pop()
                     RESULT['channel'] = users.pop()
                     users[0] = users[0][1:]
                     RESULT['users'] = users
+                    ADD_SEND = False
                 case 'JOIN' | 'PART':
-                    RESULT['channel'] = TARGET
                     RESULT['user'] = SERVER.split('!')[0]
                 case 'PRIVMSG':
-                    RESULT['channel'] = TARGET
                     RESULT['sender'] = SERVER.split('!')[0]
                     RESULT['message'] = MESSAGE[1:] if MESSAGE.startswith(':') else MESSAGE
                     RESULT['action'] = False
@@ -350,29 +352,32 @@ class Session(object):
                         RESULT['message'] = RESULT['message'].replace(SOH + 'ACTION', '').replace(SOH, '')
                         RESULT['action'] = True
                 case 'USERNOTICE':
-                    RESULT['channel'] = TARGET
                     RESULT['user'] = MESSAGE[1:] if MESSAGE.startswith(':') else MESSAGE
+                    RESULT['sender'] = RESULT['tags']['login']
+                    RESULT['message'] = MESSAGE[1:] if MESSAGE.startswith(':') else MESSAGE
                     RESULT['type'] = RESULT['tags']['msg-id']
                     if SOH in RESULT['message']:
                         log.warning("ACTION DETECTED IN USERNOTICE?! NANI?!")
                 case 'CLEARMSG':
-                    RESULT['channel'] = TARGET
                     RESULT['user'] = RESULT['tags']['login']
                     RESULT['message'] = MESSAGE[1:] if MESSAGE.startswith(':') else MESSAGE
                 case 'CLEARCHAT':
-                    RESULT['channel'] = TARGET
                     RESULT['user'] = MESSAGE[1:] if MESSAGE.startswith(':') else MESSAGE
                 case _:
                     if re.match(r'^\d+$', COMMAND):
                         RESULT['message'] = MESSAGE[1:] if MESSAGE.startswith(':') else MESSAGE
+                        ADD_SEND = False
                     else:
-                        RESULT['channel'] = TARGET
                         if MESSAGE != '': RESULT['message'] = MESSAGE[1:] if MESSAGE.startswith(':') else MESSAGE
-                        if COMMAND not in {'ROOMSTATE', 'GLOBALUSERSTATE'}:
+                        if COMMAND not in {'ROOMSTATE', 'USERSTATE', 'GLOBALUSERSTATE'}:
                             log.warning(f'{COMMAND} is not handled in a special way.')
                             RESULT['server'] = SERVER
                     pass
 
+            
+            if ADD_SEND and TARGET is not None:
+                RESULT['channel'] = TARGET
+                RESULT['send'] = self.proxy_send_obj(TARGET)
 
         RESULT['raw'] = RAW
         return RESULT
@@ -425,7 +430,6 @@ class Session(object):
                 self.jointask.cancel()
                 self.__joinqueue = Queue()
 
-    # This is a complex function, and it has a high "Cognitive Complexity", beyond the limit of 15.
     def start(self, token, nick, channels=None) -> None:
         self.token = token
         self.nick = nick
