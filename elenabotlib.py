@@ -326,22 +326,24 @@ class Session(object):
             # print(COMMAND)
             # print(TARGET)
             # print(MESSAGE)
+            ADD_TARGET = True
 
-            ADD_SEND = True
-            
             RESULT['command'] = COMMAND
+            RESULT['channel'] = TARGET
             match COMMAND:
                 case 'CAP':
                     cap: list = MESSAGE[len('ACK') + 2:].split(' ')
                     RESULT['ACK'] = cap
-                    ADD_SEND = False
+                    ADD_TARGET = False
                 case '353':
                     users: list = MESSAGE.split(' ')
                     users.pop()
                     RESULT['channel'] = users.pop()
                     users[0] = users[0][1:]
                     RESULT['users'] = users
-                    ADD_SEND = False
+                case '366':
+                    RESULT['channel'] = MESSAGE.split(' ')[0]
+                    RESULT['message'] = ' '.join(MESSAGE.split(' ')[1:])[1:]
                 case 'JOIN' | 'PART':
                     RESULT['user'] = SERVER.split('!')[0]
                 case 'PRIVMSG':
@@ -366,7 +368,7 @@ class Session(object):
                 case _:
                     if re.match(r'^\d+$', COMMAND):
                         RESULT['message'] = MESSAGE[1:] if MESSAGE.startswith(':') else MESSAGE
-                        ADD_SEND = False
+                        ADD_TARGET = False
                     else:
                         if MESSAGE != '': RESULT['message'] = MESSAGE[1:] if MESSAGE.startswith(':') else MESSAGE
                         if COMMAND not in {'ROOMSTATE', 'USERSTATE', 'GLOBALUSERSTATE'}:
@@ -375,9 +377,8 @@ class Session(object):
                     pass
 
             
-            if ADD_SEND and TARGET is not None:
-                RESULT['channel'] = TARGET
-                RESULT['send'] = self.proxy_send_obj(TARGET)
+            if ADD_TARGET and RESULT['channel'] is not None:
+                RESULT['send'] = self.proxy_send_obj(RESULT['channel'])
 
         RESULT['raw'] = RAW
         return RESULT
