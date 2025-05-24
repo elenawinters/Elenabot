@@ -1,11 +1,11 @@
-from elenabotlib import Session, event, channel, cooldown, message, author, configure_logger, log
+from elenabotlib import Session, log, event
 import configparser
 import logging
-import random
-import hints
 import ast
 import os
 
+# This runs the bot with extra debug info, but no handlers.
+# It's useful for testing the bot in chaotic situations
 
 class Elenabot(Session):
     def __init__(self):
@@ -26,27 +26,22 @@ class Elenabot(Session):
         else:
             config.read(config_file)
 
-        # if __debug__:
-        #     # channels = ['zaquelle']
-        #     import gen_stream_list
-        #     channels = gen_stream_list.ActiveHasroot('gtarp')
-        #     # if 'zaquelle' in channels:
-        #     #     channels.remove('zaquelle')
-        #     # self.dbaddress = config['db']['address'] + '_dev'
-        #     # self.kekchannels = []
-        # else:
-
         channels = ast.literal_eval(config['twitch']['channels'])
         self.dbaddress = config['db']['address']  # overwrite DB Address with the one we want
 
-        if __debug__:
-            self.flags.log_hint_differences = True
-            self.flags.send_in_debug = False
+        self.auto_reconnect = False
+        # if __debug__:
+            # self.flags.log_hint_differences = True
+            # self.flags.send_in_debug = True
 
         self.start(config['twitch']['oauth'], config['twitch']['nickname'], channels)
 
 
-if __name__ == '__main__':
-    configure_logger(logging.DEBUG)
+@event('privmsg')
+async def on_message(self, ctx):
+    log.info('Message received', context=ctx)
 
+
+if __name__ == '__main__':
+    log.setLevel(logging.INFO)
     Elenabot()

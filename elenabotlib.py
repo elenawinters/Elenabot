@@ -18,11 +18,14 @@ from dataclasses import make_dataclass, asdict, dataclass
 from sqlalchemy.types import LargeBinary
 from datetime import datetime
 from queue import Queue
+import configlib
 import functools
+import structlog
+import traceback
+import logging
 import inspect
 import aiohttp
 import asyncio
-import logging
 import dataset
 import msgpack
 import hints
@@ -41,8 +44,113 @@ import re
 
 """
 
+# This doesn't need to be ordered the way it is, but I like it this way.
+# This contains type conversions for all the included tags.
+# @dataclass
+# class GENERIC_TYPES():
+#     msg_param_cumulative_months: int
+#     msg_param_displayName: str
+#     msg_param_viewerCount: int
+#     msg_param_login: str
+#     msg_param_months: int
+#     msg_param_promo_gift_total: str
+#     msg_param_promo_name: str
+#     msg_param_recipient_display_name: str
+#     msg_param_recipient_id: str
+#     msg_param_recipient_user_name: str
+#     msg_param_sender_login: str
+#     msg_param_sender_name: str
+#     msg_param_multimonth_tenure: int
+#     msg_param_should_share_streak: int
+#     msg_param_streak_months: int
+#     msg_param_sub_plan_name: str
+#     msg_param_sub_plan: str
+#     msg_param_was_gifted: bool
+#     msg_param_ritual_name: str
+#     msg_param_threshold: int
+#     msg_param_gift_months: int
+#     pinned_chat_paid_amount: int
+#     pinned_chat_paid_canonical_amount: int
+#     pinned_chat_paid_currency: str
+#     pinned_chat_paid_exponent: int
+#     pinned_chat_paid_is_system_messag: bool
+#     pinned_chat_paid_level: str
+#     mod: bool
+#     subscriber: bool
+#     followers_only: int
+#     target_msg_id: str
+#     display_name: str
+#     emote_only: bool
+#     subs_only: bool
+#     channel: str
+#     user_id: int
+#     msg_id: str
+#     turbo: bool
+#     login: str
+#     color: str
+#     vip: bool
+#     r9k: bool
+#     slow: int
+#     bits: str
+#     emotes: list
+#     flags: list
+#     id: str
+#     room_id: int
+#     tmi_sent_ts: int
+#     action: bool
 
-log = logging.getLogger(__name__)
+# def convert_to_typeset(ctx: dict) -> dict:
+#     typeset = GENERIC_TYPES
+#     # print(ctx)
+#     # print(ctx.__dict__)
+#     # print(GENERIC_TYPES.__annotations__)
+#     # print(GENERIC_TYPES.__dict__)
+#     # print(ctx.__class__.__name__)
+#     # print(GENERIC_TYPES.__name__)
+#     # print (typeset.__annotations__)
+
+
+#     # results = {}
+#     # if 'tags' in ctx:
+#     #     for k, v in ctx['tags'].items():
+#     #         results[k] = v
+#     #         print(k, v)
+#     #         print(k, type(k))
+#     #         if k in typeset.__annotations__:
+#     #             results[k] = typeset.__annotations__[k](v)
+#     #             print(k, type(typeset.__annotations__[k](v)), typeset.__annotations__[k](v))
+#     #             print('present')
+#     # for k, v in ctx.items():
+#     #     results[k] = v
+#     #     print(k, v)
+#     #     print(k, type(k))
+#     #     if k in typeset.__annotations__:
+            
+#     #         results[k] = typeset.__annotations__[k](v)
+#     #         print(k, type(typeset.__annotations__[k](v)), typeset.__annotations__[k](v))
+#     #         print('present')
+
+#     test = {k: typeset.__annotations__[k](v) if k in typeset.__annotations__ else v for k, v in ctx.items()}
+#     if 'tags' in ctx:
+#         log.debug(test)
+#         test['tags'] = {k: typeset.__annotations__[k](v) if k in typeset.__annotations__ else v for k, v in ctx.get('tags', {}).items()}
+#     # print(test)
+#     return test
+#     # result = {k: typeset.__annotations__[k](v) if k in typeset.__annotations__ else v for k, v in ctx.items() if k in typeset.__annotations__}
+
+#     # print(ctx.items())
+#     # result = {k: typeset.__annotations__[k](v) if k in typeset.__annotations__ else v for k, v in ctx.items() if k in typeset.__annotations__}
+#     # print(result)
+#     # return result
+#     # return None
+
+#     # return {k: v for k, v in ctx.items() if k in typeset.__dict__.keys()}
+
+LOG_LEVEL = logging.DEBUG if __debug__ else logging.INFO
+log: logging = configlib.LoggerConfig(name='elenabotlib', level=LOG_LEVEL).get_logger()
+log.info('ElenabotLib has been loaded.')
+if __debug__: log.debug('Debugging is enabled. If this emoji ⭐️ appears, the logger is working correctly.')
+# log = structlog.get_logger('elenabotlib')
 SOH = chr(1)  # ASCII SOH (Start of Header) Control Character, used for ACTION events
 
 def event(name: str = 'any', *extras) -> Callable:  # listener/decorator for any event
@@ -145,28 +253,6 @@ def message(*args: tuple, **kwargs: dict) -> Callable:
             return asyncio.sleep(0)
         return wrapper
     return decorator
-
-
-class DebugFilter(logging.Filter):
-    def filter(self, record):
-        if record.levelno >= 30:
-            return True
-        elif record.levelno > 10:
-            return False
-        return True
-
-
-# you can write your own configuration if you want to, not here though. do it in your own class
-def configure_logger(_level=logging.INFO) -> None:
-    log.setLevel(_level)
-    handler = logging.StreamHandler(sys.stdout)
-    handler.setLevel(_level)
-    log.addHandler(handler)
-    d_log = logging.FileHandler('debug.log')
-    d_log.addFilter(DebugFilter())
-    d_log.setLevel(_level)
-    log.addHandler(d_log)
-
 
 _listeners = {}
 _handlers = {}  # for internal dispatch
@@ -294,7 +380,12 @@ class Session(object):
             tags = match[1].split(';')
             RESULT['tags'] = {}
             for tag in tags:
-                key, value = tag.split('=')
+                try:
+                    key, value = tag.split('=', maxsplit=1)
+                except Exception as e:
+                    log.warning(f'Failed to parse tag: {tag}', data=data, tags=tags)
+                    log.exception(e)
+                    continue
                 if key == 'badges' or key == 'badge-info' or key == 'source-badges':
                     RESULT['tags'][key] = {}
                     if value == '': continue
@@ -321,7 +412,7 @@ class Session(object):
             # print(match.groups())
             # print(match)
             SERVER, COMMAND, TARGET, _MESSAGE = match.groups()
-            MESSAGE = _MESSAGE[1:]  # fricc consts
+            MESSAGE = _MESSAGE[1:]  # :)
             # print(SERVER)
             # print(COMMAND)
             # print(TARGET)
@@ -371,7 +462,7 @@ class Session(object):
                         ADD_TARGET = False
                     else:
                         if MESSAGE != '': RESULT['message'] = MESSAGE[1:] if MESSAGE.startswith(':') else MESSAGE
-                        if COMMAND not in {'ROOMSTATE', 'USERSTATE', 'GLOBALUSERSTATE'}:
+                        if COMMAND not in {'ROOMSTATE', 'USERSTATE', 'GLOBALUSERSTATE', 'NOTICE'}:
                             log.warning(f'{COMMAND} is not handled in a special way.')
                             RESULT['server'] = SERVER
                     pass
@@ -406,7 +497,7 @@ class Session(object):
         async with aiohttp.ClientSession().ws_connect(f'{self.host}:{self.port}', heartbeat=10) as self.sock:
             log.debug(f'Attempting to connect to {self.host}:{self.port}')
             await self.sock.send_str("CAP REQ :twitch.tv/membership twitch.tv/tags twitch.tv/commands")
-            await self.sock.send_str(f"PASS {self.token}")
+            await self.sock.send_str(f"PASS {self.token}") 
             await self.sock.send_str(f"NICK {self.nick}")
             await self.join(channels)
             async for msg in self.sock:
@@ -416,14 +507,22 @@ class Session(object):
                 for line in msg.data.split("\r\n")[:-1]:
                     if line == '': continue
                     if line == 'PING :tmi.twitch.tv':
+                        log.info(line)
                         await self.sock.send_str('PONG :tmi.twitch.tv')
+                        log.info('PONG :tmi.twitch.tv')
                         continue
                     ctx = self.parseIRC(line)
+                    # log.debug(ctx)
+                    # ctx = convert_to_typeset(ctx)
                     # log.debug(comp)
                     # dprs = comp.__dict__  # dprs and ctx are linked. changing one changes the other.
                     prs = make_dataclass(ctx['command'], [tuple([k, v]) for k, v in ctx.items()])(**ctx)
                     await self.call_listeners(type(prs).__name__.lower(), ctx=prs)
-                    log.debug(prs)
+
+                    if ctx['command'] in ['NOTICE']:
+                        log.info(ctx['command'], ctx=ctx)
+                    else:
+                        log.debug(ctx['command'], ctx=ctx)
 
 
             log.info('WebSocket has been closed!')
@@ -435,6 +534,9 @@ class Session(object):
         self.token = token
         self.nick = nick
 
+        if self.nick.startswith('justinfan'):
+            self.token = 'anonymous'
+        log.debug(self.token)
         if self.flags.log_hint_differences:
             self.flag_storage['hint_classes'] = []
             for _, obj in inspect.getmembers(sys.modules['hints']):
@@ -462,19 +564,20 @@ class Session(object):
         def attempt_connection():
             success, ret = self.attempt(asyncio.run, self.__wsloop(channels))
             if success is not None:
-                log.debug(ret)
+                log.critical('An error has occured and the program has exited prematurely.', exc_info=ret)
 
             # con.commit()
             self.attempt(asyncio.run, asyncio.sleep(1))
 
         if not self.auto_reconnect:
             attempt_connection()
+            log.info('Auto Reconnect has been disabled, and the program has stopped.')
             return
 
         while self.auto_reconnect:
             attempt_connection()
+            log.info('Attempting to reconnect...')
 
-        log.info('Auto Reconnect has been disabled, and the program has stopped.')
 
     async def join(self, channels: Union[list, str]):
         # print('here')
@@ -514,65 +617,65 @@ class Session(object):
 
             self.__channels.remove(chan)
 
-    @event('any')
-    async def log_incoming(self, ctx):
-        if type(ctx).__name__ in ['JOIN', 'PART']:
-            return
-        channel = None
-        if hasattr(ctx, 'channel'):
-            channel = ctx.channel
-        event_data = asdict(ctx)
-        if 'send' in event_data: 
-            del event_data['send']
-        try: 
-            self.database['incoming'].insert(dict(
-                timestamp=datetime.utcnow(),
-                channel=channel,
-                event=str(ctx),
-                data=msgpack.packb({type(ctx).__name__: event_data})
-            ))
-        except Exception as esc:
-            log.debug(f'Failed to save to database: {str(ctx)}')
-            log.exception(esc)
+    # @event('any')
+    # async def log_incoming(self, ctx):
+    #     if type(ctx).__name__ in ['JOIN', 'PART']:
+    #         return
+    #     channel = None
+    #     if hasattr(ctx, 'channel'):
+    #         channel = ctx.channel
+    #     event_data = asdict(ctx)
+    #     if 'send' in event_data: 
+    #         del event_data['send']
+    #     try: 
+    #         self.database['incoming'].insert(dict(
+    #             timestamp=datetime.utcnow(),
+    #             channel=channel,
+    #             event=str(ctx),
+    #             data=msgpack.packb({type(ctx).__name__: event_data})
+    #         ))
+    #     except Exception as esc:
+    #         log.debug(f'Failed to save to database: {str(ctx)}')
+    #         log.exception(esc)
 
-    @event('message', 'sub', 'raid')
-    async def log_messageable(self, ctx: hints.Messageable) -> None:
-        if type(ctx).__name__ == 'RAID':
-            log.info(f'RAID {ctx.channel} >>> {ctx.raider}: {ctx.viewers}')
-            return
-        if type(ctx).__name__ == 'PRIVMSG' and ctx.action:
-            log.info(f'ACTION {ctx.message.channel} >>> {ctx.message.author}: {ctx.message.content}')
-            return
-        log.info(f'{type(ctx).__name__} {ctx.message.channel} >>> {ctx.message.author}: {ctx.message.content}')
+    # @event('message', 'sub', 'raid')
+    # async def log_messageable(self, ctx: hints.Messageable) -> None:
+    #     if type(ctx).__name__ == 'RAID':
+    #         log.info(f'RAID {ctx.channel} >>> {ctx.raider}: {ctx.viewers}')
+    #         return
+    #     if type(ctx).__name__ == 'PRIVMSG' and ctx.action:
+    #         log.info(f'ACTION {ctx.message.channel} >>> {ctx.message.author}: {ctx.message.content}')
+    #         return
+    #     log.info(f'{type(ctx).__name__} {ctx.message.channel} >>> {ctx.message.author}: {ctx.message.content}')
 
-    @event('userstate')
-    async def verify_outgoing_approve(self, ctx):
-        if not self.__outgoing[ctx.channel]: return
-        msg = self.__outgoing[ctx.channel].pop(0)
-        log.info(f'SENT {ctx.channel} >>> {ctx.user}: {msg}')
-        # cur.execute('insert into msg_sent values (?, ?)', (ctx.channel, msg,))
-        # con.commit()
+    # @event('userstate')
+    # async def verify_outgoing_approve(self, ctx):
+    #     if not self.__outgoing[ctx.channel]: return
+    #     msg = self.__outgoing[ctx.channel].pop(0)
+    #     log.info(f'SENT {ctx.channel} >>> {ctx.user}: {msg}')
+    #     # cur.execute('insert into msg_sent values (?, ?)', (ctx.channel, msg,))
+    #     # con.commit()
 
-    @event('notice')
-    async def verify_outgoing_deny(self, ctx):
-        if not ctx.msg_id.startswith('msg'): return
-        if ctx.msg_id == 'msg_banned':  # ban me bitches, im tired of this throwing errors cuz im on a bot list
-            # cur.execute('insert into msg_banned values (?)', (ctx.channel,))
-            # con.commit()
-            return
-        msg = self.__outgoing[ctx.channel].pop(0)
-        log.info(f'FAIL {ctx.channel} >>> {self.nick}: {msg}')
-        # cur.execute('insert into msg_denied values (?, ?)', (ctx.channel, msg,))
-        # con.commit()
+    # @event('notice')
+    # async def verify_outgoing_deny(self, ctx):
+    #     if not ctx.msg_id.startswith('msg'): return
+    #     if ctx.msg_id == 'msg_banned':  # ban me bitches, im tired of this throwing errors cuz im on a bot list
+    #         # cur.execute('insert into msg_banned values (?)', (ctx.channel,))
+    #         # con.commit()
+    #         return
+    #     msg = self.__outgoing[ctx.channel].pop(0)
+    #     log.info(f'FAIL {ctx.channel} >>> {self.nick}: {msg}')
+    #     # cur.execute('insert into msg_denied values (?, ?)', (ctx.channel, msg,))
+    #     # con.commit()
 
-    @event('notice')
-    async def log_notices(self, ctx: hints.NOTICE):
-        func = log.info if __debug__ else log.debug
-        func(f'NOTICE({ctx.msg_id}): {ctx.channel} >>> {ctx.message}')
+    # @event('notice')
+    # async def log_notices(self, ctx: hints.NOTICE):
+    #     func = log.info if __debug__ else log.debug
+    #     func(f'NOTICE({ctx.msg_id}): {ctx.channel} >>> {ctx.message}')
 
-    @event('cap')
-    async def get_cap(self, ctx):
-        log.info(ctx)
+    # @event('cap')
+    # async def get_cap(self, ctx):
+    #     log.info(ctx)
 
     def attempt(self, func, *args, **kwargs) -> Any:
         try:

@@ -1,4 +1,4 @@
-from elenabotlib import Session, configure_logger
+from elenabotlib import Session, log
 import configparser
 import logging
 import ast
@@ -14,9 +14,9 @@ class Elenabot(Session):
         config_file = 'config.ini'
         if not os.path.exists(config_file):
             config['twitch'] = {
-                'oauth': 'oauth'.encode('utf-8').hex(),
+                'oauth': 'anonymous'.encode('utf-8').hex(),
                 'channels': ['tmiloadtesting2', 'twitchmedia_qs_10'],  # this is standard list format in the ini file. example: ['elenaberry']
-                'nickname': 'your_lowercase_username'
+                'nickname': 'justinfan69'
             }
             config['db'] = {
                 'address': ''
@@ -29,6 +29,7 @@ class Elenabot(Session):
         channels = ast.literal_eval(config['twitch']['channels'])
         self.dbaddress = config['db']['address']  # overwrite DB Address with the one we want
 
+        self.auto_reconnect = False
         # if __debug__:
             # self.flags.log_hint_differences = True
             # self.flags.send_in_debug = True
@@ -36,6 +37,5 @@ class Elenabot(Session):
         self.start(config['twitch']['oauth'], config['twitch']['nickname'], channels)
 
 if __name__ == '__main__':
-    configure_logger(logging.DEBUG)
-
+    log.setLevel(logging.INFO)
     Elenabot()
