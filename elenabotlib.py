@@ -380,12 +380,8 @@ class Session(object):
             tags = match[1].split(';')
             RESULT['tags'] = {}
             for tag in tags:
-                try:
-                    key, value = tag.split('=', maxsplit=1)
-                except Exception as e:
-                    log.warning(f'Failed to parse tag: {tag}', data=data, tags=tags)
-                    log.exception(e)
-                    continue
+                key, value = tag.split('=', maxsplit=1)
+                value = value.replace('\\s', ' ')
                 if key == 'badges' or key == 'badge-info' or key == 'source-badges':
                     RESULT['tags'][key] = {}
                     if value == '': continue
@@ -522,10 +518,14 @@ class Session(object):
                     if 'send' in _lctx: del _lctx['send']
                     if 'raw' in _lctx: del _lctx['raw']
 
+                    chlog = ' '
+                    if 'channel' in ctx:
+                        chlog += ctx['channel']
+
                     if ctx['command'] in ['NOTICE']:
-                        log.info(ctx['command'], ctx=_lctx)
+                        log.info(ctx['command'] + chlog, ctx=_lctx)
                     else:
-                        log.debug(ctx['command'], ctx=_lctx)
+                        log.debug(ctx['command'] + chlog, ctx=_lctx)
 
 
             log.info('WebSocket has been closed!')
