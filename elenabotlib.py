@@ -531,11 +531,9 @@ class Session(object):
 
                     # ----------------------------------------------
                     # DB Logging :D
-                    if type(ctx).__name__ in ['JOIN', 'PART']:
-                        return
                     channel = None
-                    if hasattr(ctx, 'channel'):
-                        channel = ctx.channel
+                    if hasattr(prs, 'channel'):
+                        channel = prs.channel
                     try: 
                         self.database['incoming'].insert(dict(
                             timestamp=datetime.utcnow(),
