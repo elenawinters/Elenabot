@@ -364,6 +364,8 @@ class Session(object):
 
         self.__proxies = {}
 
+        self.joindelay = 0.5  # 20 times per 10 seconds, 2 times a second
+
         self.dbaddress = None
 
         self.flags = SessionFlags()
@@ -387,7 +389,7 @@ class Session(object):
                     if value == '': continue
                     badges = value.split(',')
                     for badge in badges:
-                        badgeKey, badgeValue = badge.split('/')
+                        badgeKey, badgeValue = badge.split('/', maxsplit=1)
                         RESULT['tags'][key][badgeKey] = badgeValue
                     continue
                 elif key == 'emotes':
@@ -395,8 +397,8 @@ class Session(object):
                     if value == '': continue
                     emotes = value.split('/')
                     for emote in emotes:
-                        emoteKey, emoteValue = emote.split(':')
-                        RESULT['tags'][key].append({ 'id': emoteKey, 'positions': emoteValue.split(',') })
+                        emoteKey, emoteValue = emote.split(':', maxsplit=1)
+                        RESULT['tags'][key].append({ 'id': emoteKey, 'positions': emoteValue.split(',', maxsplit=1) })
                     continue
                 RESULT['tags'][key] = value or None
             # log.debug(data)
@@ -485,7 +487,7 @@ class Session(object):
 
     @event('376')
     async def handle_376(self, ctx):
-        log.debug(f"Connected! Environment is {'DEBUG' if __debug__ else 'PRODUCTION'}.")
+        log.info(f"Connected! Environment is {'DEBUG' if __debug__ else 'PRODUCTION'}.")
         loop = asyncio.get_running_loop()
         self.jointask = loop.create_task(self._join())
 
@@ -522,7 +524,7 @@ class Session(object):
                     if 'channel' in ctx:
                         chlog += ctx['channel']
 
-                    if ctx['command'] in ['NOTICE']:
+                    if ctx['command'] in ['NOTICE', 'RECONNECT']:
                         log.info(ctx['command'] + chlog, ctx=_lctx)
                     else:
                         log.debug(ctx['command'] + chlog, ctx=_lctx)
@@ -605,7 +607,7 @@ class Session(object):
                 log.info(f'Joined {c}')
                 self.__outgoing[c] = []
 
-            await asyncio.sleep(0.5)  # 20 times per 10 seconds, 2 times a second
+            await asyncio.sleep(self.joindelay)
 
     async def part(self, channels: Union[list, str]) -> None:  # i made it work
         channels = [channels] if isinstance(channels, str) else channels
