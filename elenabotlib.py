@@ -529,6 +529,25 @@ class Session(object):
                     else:
                         log.debug(ctx['command'] + chlog, ctx=_lctx)
 
+                    # ----------------------------------------------
+                    # DB Logging :D
+                    if type(ctx).__name__ in ['JOIN', 'PART']:
+                        return
+                    channel = None
+                    if hasattr(ctx, 'channel'):
+                        channel = ctx.channel
+                    try: 
+                        self.database['incoming'].insert(dict(
+                            timestamp=datetime.utcnow(),
+                            channel=channel,
+                            event=str(make_dataclass(ctx['command'], [tuple([k, v]) for k, v in _lctx.items()])(**_lctx)),
+                            data=msgpack.packb(_lctx)
+                        ))
+                    except Exception as esc:
+                        log.debug(f'Failed to save to database: {ctx['command']}')
+                        log.exception(esc)
+                    # ----------------------------------------------
+
 
             log.info('WebSocket has been closed!')
             if hasattr(self, 'jointask'):
@@ -621,66 +640,6 @@ class Session(object):
             log.info(f'Left {c}')
 
             self.__channels.remove(chan)
-
-    # @event('any')
-    # async def log_incoming(self, ctx):
-    #     if type(ctx).__name__ in ['JOIN', 'PART']:
-    #         return
-    #     channel = None
-    #     if hasattr(ctx, 'channel'):
-    #         channel = ctx.channel
-    #     event_data = asdict(ctx)
-    #     if 'send' in event_data: 
-    #         del event_data['send']
-    #     try: 
-    #         self.database['incoming'].insert(dict(
-    #             timestamp=datetime.utcnow(),
-    #             channel=channel,
-    #             event=str(ctx),
-    #             data=msgpack.packb({type(ctx).__name__: event_data})
-    #         ))
-    #     except Exception as esc:
-    #         log.debug(f'Failed to save to database: {str(ctx)}')
-    #         log.exception(esc)
-
-    # @event('message', 'sub', 'raid')
-    # async def log_messageable(self, ctx: hints.Messageable) -> None:
-    #     if type(ctx).__name__ == 'RAID':
-    #         log.info(f'RAID {ctx.channel} >>> {ctx.raider}: {ctx.viewers}')
-    #         return
-    #     if type(ctx).__name__ == 'PRIVMSG' and ctx.action:
-    #         log.info(f'ACTION {ctx.message.channel} >>> {ctx.message.author}: {ctx.message.content}')
-    #         return
-    #     log.info(f'{type(ctx).__name__} {ctx.message.channel} >>> {ctx.message.author}: {ctx.message.content}')
-
-    # @event('userstate')
-    # async def verify_outgoing_approve(self, ctx):
-    #     if not self.__outgoing[ctx.channel]: return
-    #     msg = self.__outgoing[ctx.channel].pop(0)
-    #     log.info(f'SENT {ctx.channel} >>> {ctx.user}: {msg}')
-    #     # cur.execute('insert into msg_sent values (?, ?)', (ctx.channel, msg,))
-    #     # con.commit()
-
-    # @event('notice')
-    # async def verify_outgoing_deny(self, ctx):
-    #     if not ctx.msg_id.startswith('msg'): return
-    #     if ctx.msg_id == 'msg_banned':  # ban me bitches, im tired of this throwing errors cuz im on a bot list
-    #         # cur.execute('insert into msg_banned values (?)', (ctx.channel,))
-    #         # con.commit()
-    #         return
-    #     msg = self.__outgoing[ctx.channel].pop(0)
-    #     log.info(f'FAIL {ctx.channel} >>> {self.nick}: {msg}')
-    #     # cur.execute('insert into msg_denied values (?, ?)', (ctx.channel, msg,))
-    #     # con.commit()
-
-    # @event('notice')
-    # async def log_notices(self, ctx: hints.NOTICE):
-    #     func = log.info if __debug__ else log.debug
-    #     func(f'NOTICE({ctx.msg_id}): {ctx.channel} >>> {ctx.message}')
-
-    # @event('cap')
-    # async def get_cap(self, ctx):
-    #     log.info(ctx)
 
     def attempt(self, func, *args, **kwargs) -> Any:
         try:
