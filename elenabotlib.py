@@ -507,9 +507,8 @@ class Session(object):
                 for line in msg.data.split("\r\n")[:-1]:
                     if line == '': continue
                     if line == 'PING :tmi.twitch.tv':
-                        log.info(line)
                         await self.sock.send_str('PONG :tmi.twitch.tv')
-                        log.info('PONG :tmi.twitch.tv')
+                        log.info('PONG :tmi.twitch.tv', ctx=line)
                         continue
                     ctx = self.parseIRC(line)
                     # log.debug(ctx)
@@ -519,10 +518,14 @@ class Session(object):
                     prs = make_dataclass(ctx['command'], [tuple([k, v]) for k, v in ctx.items()])(**ctx)
                     await self.call_listeners(type(prs).__name__.lower(), ctx=prs)
 
+                    _lctx = ctx.copy()
+                    if 'send' in _lctx: del _lctx['send']
+                    if 'raw' in _lctx: del _lctx['raw']
+
                     if ctx['command'] in ['NOTICE']:
-                        log.info(ctx['command'], ctx=ctx)
+                        log.info(ctx['command'], ctx=_lctx)
                     else:
-                        log.debug(ctx['command'], ctx=ctx)
+                        log.debug(ctx['command'], ctx=_lctx)
 
 
             log.info('WebSocket has been closed!')
@@ -536,7 +539,7 @@ class Session(object):
 
         if self.nick.startswith('justinfan'):
             self.token = 'anonymous'
-        log.debug(self.token)
+
         if self.flags.log_hint_differences:
             self.flag_storage['hint_classes'] = []
             for _, obj in inspect.getmembers(sys.modules['hints']):

@@ -37,5 +37,5 @@ class Elenabot(Session):
         self.start(config['twitch']['oauth'], config['twitch']['nickname'], channels)
 
 if __name__ == '__main__':
-    log.setLevel(logging.INFO)
+    # log.setLevel(logging.INFO)
     Elenabot()
